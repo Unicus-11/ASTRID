@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input>
+        <net-file value="intersection.net.xml"/>
+        <route-files value="intersection.rou.xml"/>
+    </input>
+    <time>
+<begin value="0"/>
+        <!-- Set simulation end time (e.g., 7200 for 2 hours, 86400 for 24 hours) -->
+        <end value="7200"/>
+        <step-length value="1.0"/>
+    </time>
+    <processing>
+        <!-- Enables sublane filtering (0.5m spatial lateral grid) -->
+        <lateral-resolution value="0.5"/>
+    </processing>
+</configuration>

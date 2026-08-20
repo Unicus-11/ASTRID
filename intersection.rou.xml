@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <!-- ================================================================= -->
+    <!-- 1. VEHICLE CLASSES WITH AGGRESSIVE OVERTAKING & TINY GAPS          -->
+    <!-- ================================================================= -->
+
+    <!-- Motorcycles: High lateral agility, aggressive squeezing into tiny gaps -->
+    <vType id="motorcycle" accel="3.5" decel="5.5" sigma="0.8" length="1.8" width="0.8" 
+           maxSpeed="12.0" minGap="0.2" latAlignment="arbitrary"
+           lcStrategic="0.2" lcCooperative="0.0" lcSublane="3.0" lcPushy="1.0" lcAssertive="1.5"
+           speedFactor="normc(1.1,0.2,0.7,1.5)"/>
+
+    <!-- Auto-Rickshaws: Aggressive spatial maneuvering and gap insertion -->
+    <vType id="auto_rickshaw" accel="2.2" decel="4.5" sigma="0.7" length="2.6" width="1.3" 
+           maxSpeed="10.0" minGap="0.4" latAlignment="compact"
+           lcStrategic="0.5" lcCooperative="0.1" lcSublane="2.0" lcPushy="0.8" lcAssertive="1.2"
+           speedFactor="normc(0.95,0.15,0.6,1.3)"/>
+
+    <!-- Cars: Opportunistic lane-changing and sublane overtaking -->
+    <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="4.5" width="1.8" 
+           maxSpeed="13.89" minGap="0.8" latAlignment="center"
+           lcStrategic="0.8" lcCooperative="0.2" lcSublane="1.2" lcPushy="0.5" lcAssertive="1.0"
+           speedFactor="normc(1.0,0.1,0.8,1.2)"/>
+
+    <!-- Buses: Large footprint blocking sublanes -->
+    <vType id="bus" accel="1.2" decel="3.0" sigma="0.3" length="10.5" width="2.5" 
+           maxSpeed="10.0" minGap="1.2" latAlignment="center"
+           lcStrategic="1.0" lcCooperative="0.3" lcSublane="0.2" lcPushy="0.2"/>
+
+    <!-- ================================================================= -->
+    <!-- 2. LOCAL VENDORS & ROAD OBSTACLES (COWS / HANDCARTS)              -->
+    <!-- ================================================================= -->
+
+    <!-- Handcart / Vendor Cart: Very slow, wide lateral footprint, forces traffic around it -->
+           
+    <!-- Handcart / Vendor Cart: Represented as a slow delivery vehicle in Orange -->
+    <vType id="vendor_cart" accel="0.5" decel="1.5" sigma="0.9" length="2.2" width="1.4" 
+           maxSpeed="2.5" minGap="0.5" latAlignment="right"
+           lcStrategic="0.0" lcCooperative="0.0" lcSublane="0.0"
+           guiShape="delivery" color="orange"/>
+
+    <!-- Stray Cattle: Represented as a pedestrian shape in Brown/Yellow -->
+    <vType id="cow" accel="0.3" decel="1.0" sigma="1.0" length="2.0" width="1.1" 
+           maxSpeed="1.5" minGap="0.3" latAlignment="arbitrary"
+           lcStrategic="0.0" lcCooperative="0.0" lcSublane="1.5"
+           guiShape="pedestrian" color="139,69,19"/>
+
+    <!-- ================================================================= -->
+    <!-- 3. NETWORK ROUTES                                                 -->
+    <!-- ================================================================= -->
+    <route id="r_west_east" edges="E1 E2"/>
+    <route id="r_east_west" edges="-E2 -E1"/>
+    <route id="r_north_south" edges="-E4 E3"/>
+    <route id="r_south_north" edges="-E3 E4"/>
+
+    <!-- Short routes for static roadside obstacles -->
+    <route id="r_west_entry" edges="E1"/>
+    <route id="r_north_entry" edges="-E4"/>
+
+    <!-- ================================================================= -->
+    <!-- 4. TRAFFIC FLOWS (EXTENDED TO 7200 SECONDS)                        -->
+    <!-- ================================================================= -->
+
+    <!-- West -> East Flows -->
+    <flow id="f_we_bike" type="motorcycle" route="r_west_east" begin="0" end="7200" period="3"/>
+    <flow id="f_we_auto" type="auto_rickshaw" route="r_west_east" begin="0" end="7200" period="5"/>
+    <flow id="f_we_car"  type="car"           route="r_west_east" begin="0" end="7200" period="4"/>
+    <flow id="f_we_bus"  type="bus"           route="r_west_east" begin="0" end="7200" period="25"/>
+
+    <!-- East -> West Flows -->
+    <flow id="f_ew_bike" type="motorcycle" route="r_east_west" begin="0" end="7200" period="3"/>
+    <flow id="f_ew_auto" type="auto_rickshaw" route="r_east_west" begin="0" end="7200" period="5"/>
+    <flow id="f_ew_car"  type="car"           route="r_east_west" begin="0" end="7200" period="4"/>
+
+    <!-- North -> South Flows -->
+    <flow id="f_ns_bike" type="motorcycle" route="r_north_south" begin="0" end="7200" period="4"/>
+    <flow id="f_ns_auto" type="auto_rickshaw" route="r_north_south" begin="0" end="7200" period="6"/>
+    <flow id="f_ns_car"  type="car"           route="r_north_south" begin="0" end="7200" period="5"/>
+
+    <!-- South -> North Flows -->
+    <flow id="f_sn_bike" type="motorcycle" route="r_south_north" begin="0" end="7200" period="4"/>
+    <flow id="f_sn_auto" type="auto_rickshaw" route="r_south_north" begin="0" end="7200" period="6"/>
+    <flow id="f_sn_car"  type="car"           route="r_south_north" begin="0" end="7200" period="5"/>
+
+    <!-- Local Vendor Carts moving along the roadside edge -->
+    <flow id="f_vendor_we" type="vendor_cart" route="r_west_east" begin="10" end="7200" period="180"/>
+
+    <!-- Stray Cattle wandering onto the road -->
+    <flow id="f_cow_ns" type="cow" route="r_north_south" begin="30" end="7200" period="300"/>
+
+    <!-- ================================================================= -->
+    <!-- 5. STATIONARY ROAD OBSTACLES                                      -->
+    <!-- ================================================================= -->
+    <!-- A static roadside vendor stall parked at position x=30m on edge E1 -->
+    <vehicle id="static_vendor_stall" type="vendor_cart" route="r_west_entry" depart="0" departPos="30.0" departSpeed="0">
+        <stop edge="E1" startPos="29.0" endPos="33.0" duration="7200"/>
+    </vehicle>
+
+</routes>
