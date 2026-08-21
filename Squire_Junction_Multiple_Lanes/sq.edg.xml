@@ -3,16 +3,16 @@
 <!-- New document created with EditiX at Mon Nov 15 12:18:18 IST 2010 -->
 
 <edges>
-<edge id="1i" fromnode="1" tonode="0" type="a"/>
-<edge id="1o" fromnode="0" tonode="1" type="b"/>
-<edge id="2i" fromnode="2" tonode="0" type="a"/>
-<edge id="2o" fromnode="0" tonode="2" type="b"/>
-<edge id="3i" fromnode="3" tonode="0" type="a"/>
-<edge id="3o" fromnode="0" tonode="3" type="b"/>
-<edge id="4i" fromnode="4" tonode="0" type="a"/>
-<edge id="4o" fromnode="0" tonode="4" type="b"/>
-<edge id="51o" fromnode="1" tonode="51" type="b"/>
-<edge id="52o" fromnode="2" tonode="52" type="b"/>
-<edge id="53o" fromnode="3" tonode="53" type="b"/>
-<edge id="54o" fromnode="4" tonode="54" type="b"/>
+<edge id="1i" from="1" to="0" type="a"/>
+<edge id="1o" from="0" to="1" type="b"/>
+<edge id="2i" from="2" to="0" type="a"/>
+<edge id="2o" from="0" to="2" type="b"/>
+<edge id="3i" from="3" to="0" type="a"/>
+<edge id="3o" from="0" to="3" type="b"/>
+<edge id="4i" from="4" to="0" type="a"/>
+<edge id="4o" from="0" to="4" type="b"/>
+<edge id="51o" from="1" to="51" type="b"/>
+<edge id="52o" from="2" to="52" type="b"/>
+<edge id="53o" from="3" to="53" type="b"/>
+<edge id="54o" from="4" to="54" type="b"/>
 </edges>

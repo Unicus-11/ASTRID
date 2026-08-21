@@ -1,55 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- New document created with EditiX at Mon Nov 15 12:17:28 IST 2010 -->
-
 <connections>
-<connection from="1i" to="2o" lane="1:0"/>
-<connection from="1i" to="3o" lane="0:0"/>
-<connection from="1i" to="4o" lane="2:0"/>
-<!--
-<connection from="1i" to="2o" lane="0:0"/>
-<connection from="1i" to="3o" lane="1:0"/>
-<connection from="1i" to="4o" lane="1:0"/>
+    <connection from="1i" to="2o" fromLane="1" toLane="0"/>
+    <connection from="1i" to="3o" fromLane="0" toLane="0"/>
+    <connection from="1i" to="4o" fromLane="2" toLane="0"/>
 
-<connection from="1i" to="2o" lane="2:0"/>
-<connection from="1i" to="3o" lane="2:0"/>
-<connection from="1i" to="4o" lane="0:0"/>
+    <connection from="2i" to="1o" fromLane="1" toLane="0"/>
+    <connection from="2i" to="3o" fromLane="2" toLane="0"/>
+    <connection from="2i" to="4o" fromLane="0" toLane="0"/>
 
+    <connection from="3i" to="4o" fromLane="1" toLane="0"/>
+    <connection from="3i" to="2o" fromLane="0" toLane="0"/>
+    <connection from="3i" to="1o" fromLane="2" toLane="0"/>
 
--->
+    <connection from="4i" to="3o" fromLane="1" toLane="0"/>
+    <connection from="4i" to="2o" fromLane="2" toLane="0"/>
+    <connection from="4i" to="1o" fromLane="0" toLane="0"/>
 
-
-<connection from="2i" to="1o" lane="1:0"/>
-<connection from="2i" to="3o" lane="2:0"/>
-<connection from="2i" to="4o" lane="0:0"/>
-
-
-
-<connection from="3i" to="4o" lane="1:0"/>
-<connection from="3i" to="2o" lane="0:0"/>
-<connection from="3i" to="1o" lane="2:0"/>
-
-
-
-
-
-<connection from="4i" to="3o" lane="1:0"/>
-<connection from="4i" to="2o" lane="2:0"/>
-<connection from="4i" to="1o" lane="0:0"/>
-
-
-
-
-
-<connection from="1o" to="51o" lane="0:0"/>
-
-<connection from="2o" to="52o" lane="0:0"/>
-
-
-<connection from="3o" to="53o" lane="0:0"/>
-
-<connection from="4o" to="54o" lane="0:0"/>
-
-
-
+    <connection from="1o" to="51o" fromLane="0" toLane="0"/>
+    <connection from="2o" to="52o" fromLane="0" toLane="0"/>
+    <connection from="3o" to="53o" fromLane="0" toLane="0"/>
+    <connection from="4o" to="54o" fromLane="0" toLane="0"/>
 </connections>
