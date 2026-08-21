@@ -11,7 +11,7 @@
         <step-length value="1.0"/>
     </time>
     <processing>
-        <!-- Enables sublane filtering (0.5m spatial lateral grid) -->
-        <lateral-resolution value="0.5"/>
+        <!-- Enables fine-grained spatial sublane physics -->
+        <lateral-resolution value="0.2"/>
     </processing>
 </configuration>

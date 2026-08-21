@@ -6,6 +6,7 @@ import sys
 import torch
 import torch.nn as nn
 import traci
+import random
 
 # --- Layer 1: PyTorch PINN Architecture ---
 class LWR_PINN(nn.Module):
@@ -84,21 +85,59 @@ def get_sparse_pcu_density(edge_id, sample_rate=0.20):
     k_pcu = (estimated_total_pcu / edge_length_m) * 1000.0
     return k_pcu
 
+def control_stray_cattle():
+    """
+    Finds all active 'cow' vehicles in the simulation and forces erratic,
+    random lateral sublane movements, sudden stops, and slow wandering.
+    """
+    for v_id in traci.vehicle.getIDList():
+        # Check if the vehicle belongs to the cow vType
+        if traci.vehicle.getTypeID(v_id) == "cow":
+            # 1. Completely disable SUMO car-following & lane-changing safety rules
+            traci.vehicle.setSpeedMode(v_id, 0)       # Ignores red lights, collision checks, and gap safety
+            traci.vehicle.setLaneChangeMode(v_id, 0)  # Disables standard lane alignment rules
+
+            # 2. Random action roll on each execution step
+            action_roll = random.random()
+
+            if action_roll < 0.20:
+                # Event A: Stop dead in the middle of the road/intersection to block traffic
+                traci.vehicle.setSpeed(v_id, 0.0)
+
+            elif action_roll < 0.60:
+                # Event B: Drastic sublane shift across the 3.75m lane width
+                # Shifts up to 1.5 meters left or right from current center
+                random_lat_offset = random.uniform(-1.5, 1.5)
+                traci.vehicle.changeSublane(v_id, random_lat_offset)
+                traci.vehicle.setSpeed(v_id, random.uniform(0.3, 1.0))
+
+            else:
+                # Event C: Slow forward stroll
+                traci.vehicle.setSpeed(v_id, random.uniform(0.5, 1.2))
+
+
+
 # --- Main TraCI Simulation & Layer 1 PINN Loop ---
 def run_simulation():
     pinn = LWR_PINN(k_jam=120.0)
     optimizer = torch.optim.Adam(pinn.parameters(), lr=0.001)
 
-    # Launch SUMO GUI
-    sumo_cmd = ["sumo-gui", "-c", "intersection.sumocfg"]
+# Launch SUMO GUI with sublane physics enabled
+    sumo_cmd = [
+        "sumo-gui",
+        "-c", "intersection.sumocfg",
+        "--lateral-resolution", "0.2"
+    ]
     traci.start(sumo_cmd)
     
     step = 0
-    print("[A-PULSE] Simulation Started with PINN Layer 1 Estimator.")
+    print("[ASTRID] Simulation Started with PINN Layer 1 Estimator.")
 
     while traci.simulation.getMinExpectedNumber() > 0:
         traci.simulationStep()
         step += 1
+        
+        control_stray_cattle()
 
         # Process Layer 1 Physics Estimation every 5 simulation seconds
         if step % 5 == 0:

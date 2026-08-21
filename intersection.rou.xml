@@ -16,7 +16,7 @@
            maxSpeed="10.0" minGap="0.4" latAlignment="compact"
            lcStrategic="0.5" lcCooperative="0.1" lcSublane="2.0" lcPushy="0.8" lcAssertive="1.2"
            speedFactor="normc(0.95,0.15,0.6,1.3)"
-           guiShape="passenger/three-wheeler" color="255,215,0"/>
+           guiShape="three-wheeler" color="255,215,0"/>
 
     <!-- Cars: Opportunistic lane-changing, blue standard car -->
     <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="4.5" width="1.8" 
@@ -43,8 +43,8 @@
 
     <!-- Stray Cattle: Slow moving obstacle, dark brown pedestrian shape -->
     <vType id="cow" accel="0.3" decel="1.0" sigma="1.0" length="2.0" width="1.1" 
-           maxSpeed="1.5" minGap="0.3" latAlignment="arbitrary"
-           lcStrategic="0.0" lcCooperative="0.0" lcSublane="1.5"
+           maxSpeed="1.5" minGap="0.1" latAlignment="arbitrary"
+           lcStrategic="0.0" lcCooperative="0.0" lcSublane="0.0"
            guiShape="pedestrian" color="139,69,19"/>
 
 
@@ -89,7 +89,7 @@
     <flow id="f_vendor_we" type="vendor_cart" route="r_west_east" begin="10" end="7200" period="180"/>
 
     <!-- Stray Cattle wandering onto the road -->
-    <flow id="f_cow_ns" type="cow" route="r_north_south" begin="30" end="7200" period="300"/>
+    <flow id="f_cow_ns" type="cow" route="r_north_south" begin="10" end="7200" period="120"/>
 
     <!-- ================================================================= -->
     <!-- 5. STATIONARY ROAD OBSTACLES                                      -->
