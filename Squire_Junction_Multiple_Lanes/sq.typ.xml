@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- New document created with EditiX at Mon Nov 15 12:18:18 IST 2010 -->
+
+<types>
+
+     <type id="a" priority="3" numstrips="7" nolanes="3" speed="33.889"/>
+     <type id="b" priority="2" numstrips="7" nolanes="1" speed="33.889"/>
+</types>

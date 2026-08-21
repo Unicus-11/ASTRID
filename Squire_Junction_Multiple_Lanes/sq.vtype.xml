@@ -1,0 +1,16 @@
+<routes>
+    <vtypeDistribution id="typedist1">
+    <vtype accel="3.5" decel="2.8" id="bike" length="1.5" maxspeed="27.77" guiShape="motorcycle" stripWidth="1" probability="0.5">
+        <carFollowing-Krauss sigma="0.0" tau="1.0" />
+    </vtype>
+    <vtype accel="3.5" decel="2.8" id="car" length="4.5" maxspeed="25.0" guiShape="bus" stripWidth="3" probability="0.3">
+        <carFollowing-Krauss sigma="0.0" tau="1.0" />
+    </vtype>
+    <vtype accel="2.5" decel="1.5" id="hgv" length="10.21" maxspeed="19.44" guiShape="bus" stripWidth="5" probability="0.1">
+        <carFollowing-Krauss sigma="0.0" tau="1.0" />
+    </vtype>
+    <vtype accel="1.2" decel="0.9" id="bus" length="11.54" maxspeed="19.44" guiShape="passenger/van" stripWidth="5" probability="0.1">
+        <carFollowing-Krauss sigma="0.0" tau="1.0" />
+    </vtype>
+</vtypeDistribution>
+</routes>

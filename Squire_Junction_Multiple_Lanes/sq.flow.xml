@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- New document created with EditiX at Mon Nov 15 12:18:18 IST 2010 -->
+
+<flows>
+    <interval begin="0" end="999">
+        <flow id="0" from="1i" to="54o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+        <flow id="1" from="1i" to="52o" no="150"  type="typedist1" departlane="free" departspeed="random" />
+         <flow id="2" from="1i" to="53o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+         
+       <flow id="3" from="2i" to="51o" no="150"  type="typedist1" departlane="free" departspeed="random" />
+       <flow id="4" from="2i" to="53o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+       <flow id="5" from="2i" to="54o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+
+       <flow id="6" from="3i" to="54o" no="150"  type="typedist1" departlane="free" departspeed="random" />
+         <flow id="7" from="3i" to="52o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+         <flow id="8" from="3i" to="51o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+         
+       <flow id="9" from="4i" to="51o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+       <flow id="10" from="4i" to="53o" no="150"  type="typedist1" departlane="free" departspeed="random" />
+       <flow id="11" from="4i" to="52o" no="125"  type="typedist1" departlane="free" departspeed="random" />
+
+
+    </interval>
+</flows>
+
