@@ -1,3 +1,6 @@
+#Write source .venv/Scripts/activate, because 
+#PyTorch does not officially support Python 3.14 yet ( supports up to Python 3.12/3.13)
+
 import os
 import sys
 import torch
