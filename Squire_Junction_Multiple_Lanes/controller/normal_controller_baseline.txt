@@ -1,0 +1,779 @@
+============================================================
+NORMAL CONTROLLER — IRC / WEBSTER BASELINE
+============================================================
+
+Project: ASTRID
+Controller: normal_controller.py
+Purpose: Conventional fixed-time traffic-signal baseline
+
+
+1. PURPOSE
+----------
+
+normal_controller.py is the conventional baseline controller for
+the ASTRID project.
+
+It is:
+
+    - Non-AI
+    - Non-adaptive
+    - Fixed-time at the signal execution level
+
+Its purpose is to establish how the traffic intersection behaves
+under a conventional signal-timing strategy.
+
+ASTRID has NOT been implemented yet.
+
+Therefore, these results are only the BASELINE against which ASTRID
+will later be compared.
+
+
+2. REFERENCE
+------------
+
+The signal-timing logic is based on:
+
+    IRC:93-1985
+    Guidelines on Urban Traffic Signals
+
+Reference PDF:
+
+https://www.svvv.edu.in/assets/pdf/Institute/Department/Civil%20Engineering/IRC-93-1985.pdf
+
+
+The signal-cycle calculation follows the classical Webster
+optimum-cycle formulation.
+
+Supporting FHWA reference:
+
+https://ops.fhwa.dot.gov/publications/fhwahop08024/chapter6.htm
+
+
+Webster's equation:
+
+    C = (1.5L + 5) / (1 - Y)
+
+where:
+
+    C = cycle length in seconds
+    L = total lost time per cycle
+    Y = sum of critical flow ratios
+
+
+3. IMPORTANT: WEBSTER IS NOT A CAMERA ALGORITHM
+------------------------------------------------
+
+Webster signal timing requires traffic-demand information.
+
+The important quantities are:
+
+    q = traffic volume
+    S = saturation flow
+    y = flow ratio
+    Y = sum of critical flow ratios
+    L = lost time
+
+In a real intersection, traffic volume may be obtained through:
+
+    - traffic surveys
+    - traffic detectors
+    - video/camera-based vehicle counting
+    - loop detectors
+    - radar
+    - other traffic sensors
+
+A normal camera does NOT automatically know the complete traffic
+demand of an entire road network.
+
+It only observes what is within its field of view.
+
+Therefore, in our SUMO prototype, traffic demand is currently
+provided as known input data rather than being detected from a
+camera.
+
+
+4. TRAFFIC DEMAND USED IN THE PROTOTYPE
+----------------------------------------
+
+The current controller uses:
+
+    NS = 1200 PCU/hour
+    EW = 2000 PCU/hour
+
+where:
+
+    NS = North-South traffic demand
+    EW = East-West traffic demand
+    PCU = Passenger Car Unit
+
+These are prototype traffic-demand assumptions.
+
+They are NOT live camera measurements.
+
+
+5. SATURATION FLOW
+------------------
+
+The prototype uses the IRC-style relationship:
+
+    S = 525 x W
+
+where:
+
+    S = saturation flow in PCU/hour
+    W = approach width in metres
+
+For the current intersection:
+
+    W_NS = 6 metres
+    W_EW = 6 metres
+
+Therefore:
+
+    S_NS = 525 x 6
+         = 3150 PCU/hour
+
+    S_EW = 525 x 6
+         = 3150 PCU/hour
+
+
+6. FLOW RATIO
+-------------
+
+The flow ratio is:
+
+    y = q / S
+
+For North-South:
+
+    y_NS = 1200 / 3150
+         = 0.381 approximately
+
+For East-West:
+
+    y_EW = 2000 / 3150
+         = 0.635 approximately
+
+
+7. TOTAL CRITICAL FLOW RATIO
+----------------------------
+
+The total critical flow ratio is:
+
+    Y = y_NS + y_EW
+
+Therefore:
+
+    Y = 0.381 + 0.635
+      = 1.016 approximately
+
+The controller prints:
+
+    Y : 1.016
+
+
+8. IMPORTANT RESULT: Y > 1
+---------------------------
+
+The basic Webster equation is:
+
+    C = (1.5L + 5) / (1 - Y)
+
+The denominator becomes problematic when Y approaches 1.
+
+For:
+
+    Y < 1
+
+the intersection is within the basic undersaturated operating
+condition assumed by the formula.
+
+For:
+
+    Y >= 1
+
+the demand is at or beyond the available saturation capacity.
+
+Our experiment gives:
+
+    Y = 1.016
+
+Therefore:
+
+    Y > 1
+
+This means that the assumed demand is beyond the basic
+undersaturated condition.
+
+The controller therefore uses a fallback:
+
+    C = 120 seconds
+
+instead of directly evaluating the Webster equation.
+
+The code logic is:
+
+    if Y < 1:
+        C = (1.5 * L + 5) / (1 - Y)
+        C = max(60, min(C, 120))
+    else:
+        C = 120
+
+Therefore, for this particular experiment:
+
+    Cycle = 120 seconds
+
+is caused by the fallback condition:
+
+    Y > 1
+
+It is important not to claim that Webster calculated 120 seconds
+for this run.
+
+
+9. LOST TIME
+------------
+
+The prototype uses:
+
+    L = 14 seconds
+
+Lost time represents time in the signal cycle that is not
+effectively available for serving traffic.
+
+In this prototype it is treated as a configured engineering
+parameter.
+
+It should not be interpreted as a universal 14-second value for
+every real intersection.
+
+
+10. GREEN TIME
+--------------
+
+After determining the cycle:
+
+    green_total = C - L
+
+The available effective green is distributed according to the
+critical flow ratios:
+
+    g_NS = green_total x (y_NS / Y)
+
+    g_EW = green_total x (y_EW / Y)
+
+The direction with greater traffic demand receives a greater
+proportion of green time.
+
+For the current run:
+
+    Cycle   : 120 seconds
+    NS Green: 39.8 seconds
+    EW Green: 66.2 seconds
+
+
+11. APPLYING THE SIGNAL TO SUMO
+-------------------------------
+
+SUMO already contains the traffic-light program.
+
+TraCI obtains the existing signal program:
+
+    program =
+        traci.trafficlight.getAllProgramLogics(TLS_ID)[0]
+
+Then:
+
+    phases = program.getPhases()
+
+The controller modifies the phase durations:
+
+    phases[0].duration = g_EW
+    phases[1].duration = 3
+
+    phases[2].duration = g_EW
+    phases[3].duration = 3
+
+    phases[4].duration = g_NS
+    phases[5].duration = 3
+
+    phases[6].duration = g_NS
+    phases[7].duration = 3
+
+The 3-second values represent the yellow/transition portions in
+the existing SUMO signal structure.
+
+The modified program is then applied:
+
+    traci.trafficlight.setProgramLogic(TLS_ID, program)
+
+Therefore, normal_controller.py does not create a completely new
+intersection.
+
+It takes the existing SUMO traffic-light program and changes its
+phase durations.
+
+
+12. DATA COLLECTION
+-------------------
+
+During every simulation step, the controller collects traffic
+information from SUMO.
+
+Current vehicles:
+
+    vehicle_ids = traci.vehicle.getIDList()
+
+    vehicle_count = len(vehicle_ids)
+
+This means:
+
+    Number of vehicles currently inside the SUMO network.
+
+It does NOT mean:
+
+    Total number of vehicles that have participated in the
+    simulation.
+
+
+13. COUNTING COMPLETED VEHICLES
+-------------------------------
+
+Vehicles that finish their routes and leave the network are
+obtained using:
+
+    traci.simulation.getArrivedIDList()
+
+For every simulation step:
+
+    arrived_ids =
+        traci.simulation.getArrivedIDList()
+
+    completed_vehicles += len(arrived_ids)
+
+Therefore:
+
+    Total Vehicles
+        =
+    vehicles that have entered/been processed by the simulation
+
+while:
+
+    Vehicles Completed
+        =
+    vehicles that successfully finished their route
+
+
+14. QUEUE
+---------
+
+The prototype defines a queued vehicle as:
+
+    speed < 0.5 m/s
+
+Therefore:
+
+    Queue =
+    number of vehicles whose speed is below 0.5 m/s
+
+This is a simulation-level definition.
+
+It is not yet a camera-based physical queue detector.
+
+It is also not the same as calculating the queue length directly
+from a traffic shockwave model.
+
+
+15. AVERAGE SPEED
+-----------------
+
+For all vehicles currently in the network:
+
+    Average Speed =
+        sum(vehicle speeds) / number of vehicles
+
+The result is reported in:
+
+    metres/second (m/s)
+
+
+16. FLOW
+--------
+
+Flow is measured using vehicles that arrive during the current
+simulation step.
+
+Conceptually:
+
+    Flow(t) =
+        number of vehicles completing their routes at time t
+
+Then:
+
+    Total Flow =
+        sum of completed vehicles over the simulation
+
+This is preferable to:
+
+    current_vehicle_count - previous_vehicle_count
+
+because vehicles can simultaneously enter and leave the network.
+
+
+17. WAITING TIME
+----------------
+
+SUMO provides:
+
+    traci.vehicle.getAccumulatedWaitingTime(vehicle_id)
+
+This gives an accumulated waiting-time quantity for a vehicle.
+
+The controller aggregates these values.
+
+IMPORTANT:
+
+    Wait: 14028.0 s
+
+does NOT mean:
+
+    One vehicle waited for 14,028 seconds.
+
+It represents an aggregate accumulated waiting quantity across
+vehicles.
+
+
+18. WHY WAITING TIME BECOMES VERY LARGE
+---------------------------------------
+
+Near the end of the simulation:
+
+    Step 485 | Queue: 184 | Wait: 14028.0 s
+    Step 486 | Queue: 185 | Wait: 14093.0 s
+    Step 487 | Queue: 184 | Wait: 14196.0 s
+    Step 488 | Queue: 185 | Wait: 14301.0 s
+    Step 489 | Queue: 184 | Wait: 14394.0 s
+    Step 490 | Queue: 186 | Wait: 14499.0 s
+    Step 491 | Queue: 185 | Wait: 14594.0 s
+    Step 492 | Queue: 184 | Wait: 14666.0 s
+    Step 493 | Queue: 186 | Wait: 14730.0 s
+    Step 494 | Queue: 185 | Wait: 14824.0 s
+    Step 495 | Queue: 183 | Wait: 14884.0 s
+    Step 496 | Queue: 186 | Wait: 14954.0 s
+    Step 497 | Queue: 183 | Wait: 15030.0 s
+    Step 498 | Queue: 183 | Wait: 15032.0 s
+    Step 499 | Queue: 182 | Wait: 15130.0 s
+
+There are many vehicles experiencing delay simultaneously.
+
+Therefore, aggregate waiting time can reach thousands of seconds.
+
+This should be interpreted as a SYSTEM-LEVEL delay measure.
+
+It should not be interpreted as the waiting time of a single car.
+
+
+19. FINAL BASELINE RESULT
+-------------------------
+
+Simulation Time:
+
+    500.0 seconds
+
+Final result:
+
+    Total Vehicles              : 804
+    Vehicles Completed           : 534
+    Maximum Queue                : 189
+    Average Queue                : 111.81
+    Average Speed                : 7.59 m/s
+    Average Accumulated Waiting  : 7989.97 s
+
+
+20. WHAT DOES "804 VEHICLES" MEAN?
+-----------------------------------
+
+The SUMO network did not necessarily have 804 vehicles visible
+simultaneously.
+
+The result means that 804 vehicles were processed/generated during
+the simulation according to the controller's total-vehicle
+accounting.
+
+Of these:
+
+    534 vehicles completed their routes.
+
+Therefore, approximately:
+
+    804 - 534 = 270
+
+vehicles remained inside the network at the end.
+
+This matches the final observed value:
+
+    Step 499 | Vehicles: 270
+
+
+21. WHAT HAPPENED DURING THE SIMULATION?
+----------------------------------------
+
+At the beginning:
+
+    Queue ≈ 0
+    Speed ≈ 20-25 m/s
+
+Traffic initially moves relatively freely.
+
+As more vehicles enter the network:
+
+    Queue increases
+    Speed decreases
+    Waiting increases
+
+Near the end:
+
+    Queue ≈ 182 vehicles
+    Speed ≈ 4.54 m/s
+
+This indicates substantial congestion under the fixed-time signal
+plan.
+
+
+22. WHAT CAN WE CONCLUDE?
+-------------------------
+
+We can conclude that, under the current simulated traffic demand,
+the conventional fixed-time controller produces increasing
+congestion.
+
+Observed indicators include:
+
+    Maximum Queue:
+        189 vehicles
+
+    Average Queue:
+        111.81 vehicles
+
+    Average Speed:
+        7.59 m/s
+
+    Vehicles Completed:
+        534
+
+    Total Vehicles:
+        804
+
+    Average Accumulated Waiting:
+        7989.97 s
+
+
+We also cannot say:
+
+    "The conventional controller is bad."
+
+The experiment only tells us how this particular fixed-time
+configuration behaves under this particular simulated traffic
+demand.
+
+The purpose of the experiment is to establish a BASELINE.
+
+
+
+23. CURRENT LIMITATIONS
+-----------------------
+
+1. Traffic demand is currently manually specified:
+
+       NS = 1200 PCU/hour
+       EW = 2000 PCU/hour
+
+2. These values are not currently obtained from a real camera.
+
+3. SUMO gives the controller access to vehicle information that a
+   real camera would not automatically provide.
+
+4. Queue is currently defined as:
+
+       speed < 0.5 m/s
+
+5. The Webster calculation is a fixed-time signal-timing method,
+   not an adaptive AI controller.
+
+6. The current demand produces:
+
+       Y = 1.016
+
+   which is greater than 1.
+
+7. Therefore the prototype uses the 120-second fallback cycle.
+
+8. The experiment is a simulation baseline, not field validation.
+
+
+
+
+24. LOGIC OF normal_controller.py
+----------------------------------
+
+The complete logic is:
+
+    START SUMO
+         |
+         v
+    Define traffic demand
+         |
+         v
+    Calculate saturation flow
+         |
+         v
+    Calculate flow ratios
+         |
+         v
+    Calculate Y
+         |
+         v
+    Is Y < 1?
+       /   \
+     YES    NO
+      |      |
+      v      v
+   Webster  C = 120 s
+      |      |
+       \    /
+        v  v
+    Determine green split
+         |
+         v
+    Modify SUMO signal phases
+         |
+         v
+    Run simulation
+         |
+         v
+    Collect traffic data
+         |
+         +--> Vehicles
+         |
+         +--> Completed Vehicles
+         |
+         +--> Queue
+         |
+         +--> Speed
+         |
+         +--> Flow
+         |
+         +--> Waiting
+         |
+         v
+    Calculate final metrics
+         |
+         v
+    BASELINE RESULT
+
+
+25. CORE FORMULAS
+-----------------
+
+Saturation flow:
+
+    S = 525W
+
+
+Flow ratio:
+
+    y_i = q_i / S_i
+
+
+Total critical flow ratio:
+
+    Y = Σ y_i
+
+
+Webster optimum cycle:
+
+    C = (1.5L + 5) / (1 - Y)
+
+
+Effective green:
+
+    G = C - L
+
+
+Green allocation:
+
+    g_i = G(y_i / Y)
+
+
+Current prototype condition:
+
+    Y = 1.016 > 1
+
+Therefore:
+
+    C = 120 seconds
+
+
+26. FINAL INTERPRETATION
+------------------------
+
+The conventional controller provides a fixed-time reference
+condition.
+
+For the current experiment:
+
+    Traffic Demand
+          |
+          v
+    Flow Ratios
+          |
+          v
+    Y = 1.016
+          |
+          v
+    Oversaturated condition
+          |
+          v
+    120-second fallback cycle
+          |
+          v
+    Fixed signal timing
+          |
+          v
+    Increasing congestion
+          |
+          v
+    Queue = 189 maximum
+    Average Queue = 111.81
+    Average Speed = 7.59 m/s
+    Completed = 534
+    Total = 804
+
+
+This is the baseline.
+
+The next stage is to build ASTRID separately and compare its
+performance against these baseline measurements.
+
+
+37. REFERENCES
+--------------
+
+[1] IRC:93-1985
+    Guidelines on Urban Traffic Signals
+
+    PDF:
+    https://www.svvv.edu.in/assets/pdf/Institute/Department/Civil%20Engineering/IRC-93-1985.pdf
+
+
+[2] Federal Highway Administration (FHWA)
+    Traffic Signal Timing Manual
+
+    https://ops.fhwa.dot.gov/publications/fhwahop08024/chapter6.htm
+
+
+[3] FHWA
+    Signal Timing on a Shoestring
+
+    https://ops.fhwa.dot.gov/publications/signal_timing/03.htm
+

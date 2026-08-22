@@ -9,9 +9,31 @@ traci.start([
     "-c", "sq.sumo.cfg"
 ])
 
+
+TLS_ID = "0"
+
+# ==========================================
+# TRAFFIC LIGHT: CONTROLLED LINKS
+# ==========================================
+
+links = traci.trafficlight.getControlledLinks(TLS_ID)
+
+for i, link in enumerate(links):
+    print(i, "->", link)
+
+
+# Keep SUMO alive briefly
+traci.simulationStep()
+
+
+# ==========================================
+# INITIALIZE
+# ==========================================
+
 previous_vehicle_count = 0
 
-for step in range(100):  #===> Change the range here to increase the time for simulation, It stop at 99 vehicle
+
+for step in range(100):  # ===> Change the range here to increase simulation time
 
     traci.simulationStep()
 
