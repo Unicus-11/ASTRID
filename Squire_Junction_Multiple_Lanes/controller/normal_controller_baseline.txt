@@ -31,6 +31,11 @@ will later be compared.
 2. REFERENCE
 ------------
 
+
+-----
+To run in ~/SIH/ASTRID/Squire_Junction_Multiple_Lanes/controller  :python normal_controller.py
+----
+
 The signal-timing logic is based on:
 
     IRC:93-1985
