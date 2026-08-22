@@ -13,6 +13,97 @@ QUEUE_SPEED_THRESHOLD = 0.5
 
 
 # ============================================================
+# INCOMING EDGES
+# ============================================================
+
+INCOMING_EDGES = {
+    "1i",
+    "2i",
+    "3i",
+    "4i"
+}
+
+
+# ============================================================
+# MOVEMENT INFERENCE
+# ============================================================
+
+def get_movement(route):
+    
+    """
+    Determine the vehicle's movement through the junction.
+
+    The SUMO route contains the sequence of road edges.
+
+        4i -> 3o
+
+    means the vehicle enters from the north
+    and leaves toward the south.
+
+    The function uses:
+        route[0] = incoming edge
+        route[1] = outgoing edge
+
+    Example:
+
+        route = [1i, 4o, 54o]
+
+        route[0] = 1i   # west incoming
+        route[1] = 4o   # north outgoing
+
+        movement = west_to_north
+
+    Only the first two edges are used because
+    they describe the vehicle's movement through
+    this junction.
+
+    IMPORTANT:
+    This is SUMO ground truth.
+
+    GPS and CCTV do NOT receive this movement.
+    Later, the ML model will learn to estimate
+    movement from sensor observations.
+    """    
+
+    if len(route) < 2:
+        return "unknown"
+
+    incoming = route[0]
+    outgoing = route[1]
+
+    if incoming not in INCOMING_EDGES:
+        return "unknown"
+
+    movement_map = {
+
+        # NORTH
+        ("4i", "3o"): "north_to_south",
+        ("4i", "2o"): "north_to_east",
+        ("4i", "1o"): "north_to_west",
+
+        # SOUTH
+        ("3i", "4o"): "south_to_north",
+        ("3i", "2o"): "south_to_east",
+        ("3i", "1o"): "south_to_west",
+
+        # EAST
+        ("2i", "4o"): "east_to_north",
+        ("2i", "3o"): "east_to_south",
+        ("2i", "1o"): "east_to_west",
+
+        # WEST
+        ("1i", "4o"): "west_to_north",
+        ("1i", "3o"): "west_to_south",
+        ("1i", "2o"): "west_to_east",
+    }
+
+    return movement_map.get(
+        (incoming, outgoing),
+        "unknown"
+    )
+    
+    
+# ============================================================
 # PERSISTENT GPS PROBE ASSIGNMENT
 # ============================================================
 
@@ -183,63 +274,6 @@ def get_cctv_observations(vehicle_ids, timestamp):
     return observations
 
 
-# ============================================================
-# MOVEMENT INFERENCE FOR GROUND TRUTH
-# ============================================================
-
-def get_movement(route):
-    """
-    Determine the vehicle's movement from its SUMO route.
-
-    The route tells us the sequence of road edges.
-
-        4i -> 3o
-
-    The movement is the higher-level interpretation:
-
-        north -> south
-
-    IMPORTANT:
-    This function is used only for SUMO ground truth.
-    GPS and CCTV do NOT receive this movement directly.
-
-    Later, the neural network will learn to estimate
-    this hidden movement from GPS/CCTV observations.
-    """
-
-    if len(route) < 2:
-        return "unknown"
-
-    incoming = route[0]
-    outgoing = route[1]
-
-    movement_map = {
-
-        # NORTH
-        ("4i", "3o"): "north_to_south",
-        ("4i", "2o"): "north_to_east",
-        ("4i", "1o"): "north_to_west",
-
-        # SOUTH
-        ("3i", "4o"): "south_to_north",
-        ("3i", "2o"): "south_to_east",
-        ("3i", "1o"): "south_to_west",
-
-        # EAST
-        ("2i", "4o"): "east_to_north",
-        ("2i", "3o"): "east_to_south",
-        ("2i", "1o"): "east_to_west",
-
-        # WEST
-        ("1i", "4o"): "west_to_north",
-        ("1i", "3o"): "west_to_south",
-        ("1i", "2o"): "west_to_east",
-    }
-
-    return movement_map.get(
-        (incoming, outgoing),
-        "unknown"
-    )
 
 
 # ============================================================

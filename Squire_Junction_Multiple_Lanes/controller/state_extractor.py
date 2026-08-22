@@ -14,6 +14,8 @@ traci.start([
 TLS_ID = "0"
 
 
+
+
 # ============================================================
 # TRAFFIC LIGHT: CONTROLLED LINKS
 # ============================================================
@@ -22,6 +24,8 @@ links = traci.trafficlight.getControlledLinks(TLS_ID)
 
 for i, link in enumerate(links):
     print(i, "->", link)
+    
+ 
 
 
 # ============================================================
@@ -34,6 +38,51 @@ DIRECTION_EDGES = {
     "east": "2i",
     "west": "1i"
 }
+
+
+# A movement function 
+
+def get_movement(route, route_index):
+    
+    """
+        Logic Breakdown:
+        Suppose SUMO gives:
+            route = ['1i', '4o', '54o']
+            route_index = 0
+
+        Then:
+            current_edge = '1i'
+            next_edge    = '4o'
+            movement     = '1i_to_4o'
+
+        But if:
+            route_index = 1
+
+        Then:
+            current_edge = '4o'
+            Because '4o' is not an incoming edge:
+            movement     = 'unknown'
+
+            That is correct because the vehicle has already passed through the junction.
+        """
+
+    if not route:
+        return "unknown"
+
+    current_edge = route[route_index]
+
+    # Vehicle is not currently on an incoming junction edge
+    if current_edge not in INCOMING_EDGES:
+        return "unknown"
+
+    # There is no next edge
+    if route_index + 1 >= len(route):
+        return "unknown"
+
+    next_edge = route[route_index + 1]
+
+    # Movement through the junction
+    return f"{current_edge}_to_{next_edge}"
 
 
 # ============================================================
