@@ -1,4 +1,5 @@
 import traci
+import json
 from sensor_simulator import get_sensor_data
 
 
@@ -254,10 +255,31 @@ for step in range(100):
             camera_counts[camera_id] += 1
 
 
+
+# ============================================================
+# DATASET
+# ============================================================
+
+dataset = []
+
+
+# ============================================================
+# SIMULATION LOOP
+# ============================================================
+
+for step in range(100):
+
+    traci.simulationStep()
+
+    sensor_data = get_sensor_data()
+
+    dataset.append(sensor_data)
+
+
     # ========================================================
     # 5. DISPLAY
     # ========================================================
-
+    
     print(
         f"\nStep: {step:3d}"
     )
@@ -294,6 +316,22 @@ for step in range(100):
         f"E={camera_counts['east_camera']:3d} | "
         f"W={camera_counts['west_camera']:3d}"
     )
+
+
+    
+
+# ============================================================
+# SAVE DATASET
+# ============================================================
+
+with open("sensor_dataset.json", "w") as f:
+
+    json.dump(
+        dataset,
+        f,
+        indent=2
+    )
+
 
 
 # ============================================================

@@ -2,6 +2,7 @@ import traci
 import random
 
 
+
 # ============================================================
 # SENSOR CONFIGURATION: not add fake camera errors, GPS noise, missed detections, occlusion, etc. yet.
 # ============================================================
@@ -210,7 +211,7 @@ def get_movement(route):
         return "unknown"
 
     incoming = route[0]
-    outgoing = route[-1]
+    outgoing = route[1]
 
     movement_map = {
 
@@ -374,7 +375,7 @@ def get_sensor_data():
             "timestamp": timestamp
         })
 
-
+  
     # ========================================================
     # 4. RETURN ALL DATA
     # ========================================================
@@ -389,3 +390,8 @@ def get_sensor_data():
 
         "cctv": cctv_observations
     }
+    
+
+
+    
+    
