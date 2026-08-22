@@ -1,100 +1,137 @@
-# SUMO Visualization and Running the Multi-Lane Simulation
+Yes. Since this is your `README.md`, I would keep it focused on **how the SUMO project works**, the traffic composition, and the route/edge logic that we just established.
 
-This project uses **SUMO (Simulation of Urban MObility)** to simulate traffic through the Squire Junction multi-lane network.
+Here is a clean replacement/addition for the README:
 
-The legacy SUMO project was originally created using much older SUMO/XML conventions. It has now been converted so that it runs successfully with **SUMO 1.27.1**.
+````markdown
+# ASTRID — Squire Junction Multi-Lane Simulation
 
-Requirement:
-- SUMO 1.27.1
-- Python 3.x
+ASTRID uses **SUMO (Simulation of Urban MObility)** to simulate traffic at the Squire Junction multi-lane network.
 
-## Running the Simulation
+The project has been updated to run successfully with:
 
-First, open a terminal and move into the multi-lane project directory:
+- **SUMO 1.27.1**
+- **Python 3.x**
+
+---
+
+# 1. Project Structure
+
+The main SUMO files are:
+
+```text
+Squire_Junction_Multiple_Lanes/
+│
+├── sq.sumo.cfg       → SUMO configuration
+├── sq.net.xml        → Road network
+├── sq.rou.xml        → Vehicles and routes
+│
+└── controller/
+    ├── sensor_simulator.py
+    ├── state_extractor.py
+    └── dataset_validator.py
+````
+
+The basic flow is:
+
+```text
+SUMO Network
+     +
+Vehicle Routes
+     ↓
+SUMO Simulation
+     ↓
+sensor_simulator.py
+     ↓
+Sensor Dataset
+     ↓
+dataset_validator.py
+     ↓
+ML / State Estimation
+```
+
+---
+
+# 2. Running the Simulation
+
+Move into the project directory:
 
 ```bash
 cd ~/SIH/ASTRID/Squire_Junction_Multiple_Lanes
 ```
 
-Then launch the **SUMO graphical interface**:
+Start SUMO-GUI:
 
 ```bash
 sumo-gui -c sq.sumo.cfg
 ```
 
-This opens the SUMO visualization window.
+SUMO-GUI allows us to:
 
-Inside SUMO-GUI, you can:
+* Start and pause the simulation
+* Change simulation speed
+* Watch vehicles move
+* Inspect vehicles
+* Observe different vehicle types
+* Observe lane usage
+* Inspect the junction
 
-* Press **Play** to run the simulation. Edit the time to 550 to see better and change drop menu from standard to real world
-* Pause and resume the simulation.
-* Adjust the simulation speed.
-* Watch vehicles move through the junction.
-* Observe different vehicle types and lane usage.
-* Inspect individual vehicles and network elements.
-
-The command uses:
-
-```text
-sq.sumo.cfg
-    │
-    ├── sq.net.xml   → road network
-    │
-    └── sq.rou.xml   → vehicle routes and traffic demand
-```
-
-The simulation is configured to run from **0 to 3600 seconds (one hour)**.
+For easier observation, set the simulation time around **550 seconds** and change the visualization mode from **Standard** to **Real World**.
 
 ---
 
-## Vehicle Types and Traffic Demand
+# 3. Simulation Configuration
 
-The original project used a legacy vehicle-type distribution called:
-
-```xml
-<vtypeDistribution id="typedist1">
-```
-
-The distribution contains four vehicle categories.
-
-| Vehicle | ID     | Maximum Speed |  Length | Width | Probability |
-| ------- | ------ | ------------: | ------: | ----: | ----------: |
-| Bike    | `bike` |     27.77 m/s |   1.5 m |   1 m |         50% |
-| Car     | `car`  |      25.0 m/s |   4.5 m |   3 m |         30% |
-| HGV     | `hgv`  |     19.44 m/s | 10.21 m |   5 m |         10% |
-| Bus     | `bus`  |     19.44 m/s | 11.54 m |   5 m |         10% |
-
-The probabilities sum to:
+The main configuration file is:
 
 ```text
-0.5 + 0.3 + 0.1 + 0.1 = 1.0
+sq.sumo.cfg
 ```
 
-Therefore, when the original traffic demand uses `typedist1`, vehicles are distributed approximately as:
+It connects the simulation components:
 
 ```text
-50% bikes
-30% cars
-10% HGVs
-10% buses
+sq.sumo.cfg
+      │
+      ├── sq.net.xml
+      │       ↓
+      │   Road network
+      │
+      └── sq.rou.xml
+              ↓
+        Vehicles + routes
 ```
 
-All four vehicle types originally used the **Krauss car-following model**, with:
+The simulation runs from:
 
 ```text
-sigma = 0.0
-tau   = 1.0
+0 seconds → 3600 seconds
 ```
 
-### Important conversion detail
+Therefore, the complete simulation represents:
 
-The original legacy files referenced the distribution directly:
-
-```xml
-type="typedist1"
+```text
+3600 seconds = 1 hour
 ```
 
-During the modernization process, `duarouter` converts that demand into individual vehicles in `sq.rou.xml`. The generated route file now contains concrete vehicle types such as:
+The converted simulation successfully completed:
+
+```text
+Simulation ended at time: 3600.00
+```
+
+It inserted:
+
+```text
+1600 vehicles
+```
+
+There were only three vehicle teleports caused by detected collisions. These are simulation-behavior issues and are separate from the XML conversion.
+
+---
+
+# 4. Vehicle Types
+
+The simulation contains four vehicle types:
 
 ```xml
 <vType id="bike" .../>
@@ -103,28 +140,426 @@ During the modernization process, `duarouter` converts that demand into individu
 <vType id="bus" .../>
 ```
 
-and individual vehicles reference those types:
+| Vehicle | SUMO ID | Maximum Speed |  Length | Width | Share |
+| ------- | ------- | ------------: | ------: | ----: | ----: |
+| Bike    | `bike`  |     27.77 m/s |   1.5 m |   1 m |   50% |
+| Car     | `car`   |      25.0 m/s |   4.5 m |   3 m |   30% |
+| HGV     | `hgv`   |     19.44 m/s | 10.21 m |   5 m |   10% |
+| Bus     | `bus`   |     19.44 m/s | 11.54 m |   5 m |   10% |
 
-```xml
-<vehicle id="0.0" type="bike" ...>
+The distribution is:
+
+```text
+50%  Bikes
+30%  Cars
+10%  HGVs
+10%  Buses
+----------------
+100% Total
 ```
 
-This is why the current `sq.sumo.cfg` does **not** need to load `sq.vtype.xml` again.
+For example, out of approximately 100 vehicles:
+
+```text
+50 bikes
+30 cars
+10 HGVs
+10 buses
+```
+
+The actual numbers can vary because the simulation generates individual vehicles from the traffic demand.
 
 ---
 
-## Current Simulation Result
+# 5. Vehicle Behaviour
 
-The converted model has successfully completed a full one-hour simulation:
+The four vehicle types use the **Krauss car-following model**.
 
-```text
-Simulation ended at time: 3600.00.
-```
-
-It successfully inserted:
+Important parameters:
 
 ```text
-1600 vehicles
+sigma = 0.0
+tau   = 1.0
 ```
 
-There were only three vehicle teleports caused by detected collisions. These are **simulation-behavior issues**, not XML conversion failures, and can be investigated separately.
+These parameters describe how vehicles follow the vehicle in front of them.
+
+The vehicle type is available to our sensor system through SUMO:
+
+```python
+traci.vehicle.getTypeID(vehicle_id)
+```
+
+Therefore our dataset can contain:
+
+```json
+"vehicle_type": "bike"
+```
+
+or:
+
+```json
+"vehicle_type": "car"
+```
+
+or:
+
+```json
+"vehicle_type": "hgv"
+```
+
+or:
+
+```json
+"vehicle_type": "bus"
+```
+
+This is important because ASTRID does **not** treat every vehicle as identical.
+
+---
+
+# 6. SUMO Edges and the Intersection
+
+SUMO represents roads as **edges**.
+
+An edge is simply a road segment.
+
+For our junction, the main incoming edges are:
+
+```text
+1i
+2i
+3i
+4i
+```
+
+The `i` means:
+
+```text
+incoming
+```
+
+These roads lead **toward the intersection**.
+
+The outgoing edges include:
+
+```text
+1o
+2o
+3o
+4o
+```
+
+The `o` means:
+
+```text
+outgoing
+```
+
+These roads lead **away from the intersection**.
+
+A simplified view is:
+
+```text
+                    4i
+                    ↓
+                    │
+                    │
+             1i → [ JUNCTION ] → 2o
+                    │
+                    │
+                    ↑
+                    3i
+```
+
+The numbers (`1`, `2`, `3`, `4`) are simply the IDs used by this SUMO network.
+
+They are not mathematical values.
+
+---
+
+# 7. Route vs Movement
+
+A vehicle's **route** is the complete sequence of road edges that it will travel through.
+
+Example:
+
+```text
+1i → 4o → 54o
+```
+
+This means:
+
+```text
+1i
+ ↓
+[JUNCTION]
+ ↓
+4o
+ ↓
+54o
+```
+
+Here:
+
+* `1i` = road before the junction
+* `4o` = road immediately after the junction
+* `54o` = another road segment farther along the route
+
+---
+
+# 8. What Does "Downstream" Mean?
+
+**Downstream** simply means:
+
+> farther along the vehicle's direction of travel.
+
+For example:
+
+```text
+A → B → C → D
+```
+
+If a vehicle is moving from A to D:
+
+```text
+A = upstream
+B = downstream of A
+C = further downstream
+D = even further downstream
+```
+
+Therefore:
+
+```text
+1i → 4o → 54o
+```
+
+has:
+
+```text
+1i  →  4o  →  54o
+       ↑
+       |
+   immediately
+   after junction
+```
+
+`54o` is farther downstream than `4o`.
+
+---
+
+# 9. Movement
+
+A **route** tells us all the roads the vehicle will use.
+
+A **movement** tells us the vehicle's higher-level movement through the junction.
+
+For example:
+
+```text
+Route:
+
+1i → 4o → 54o
+```
+
+For the junction, we only need:
+
+```text
+1i → 4o
+```
+
+Therefore the movement is:
+
+```text
+west_to_north
+```
+
+We use:
+
+```python
+incoming = route[0]
+outgoing = route[1]
+```
+
+because:
+
+```python
+route[0] = "1i"
+route[1] = "4o"
+route[2] = "54o"
+```
+
+So:
+
+```text
+route:
+1i → 4o → 54o
+
+movement:
+1i → 4o
+```
+
+This prevents a downstream edge such as `54o` from incorrectly changing the movement label.
+
+---
+
+# 10. Why Movement Is Ground Truth
+
+Our sensors do **not** directly know the complete future route.
+
+The simulated ground truth does.
+
+Therefore:
+
+```text
+SUMO
+ │
+ ├── route
+ │
+ └── movement
+        ↓
+   Ground Truth
+```
+
+While the simulated sensors observe only:
+
+```text
+GPS
+ ├── position
+ ├── speed
+ ├── edge
+ └── lane
+
+CCTV
+ ├── position
+ ├── speed
+ ├── edge
+ ├── lane
+ └── vehicle type
+```
+
+Later, the ML model will learn:
+
+```text
+Sensor observations
+        ↓
+   State estimator
+        ↓
+Estimated hidden state
+        ↓
+Movement prediction
+```
+
+The SUMO movement is therefore used as the **training label**, not as sensor input.
+
+This is important because otherwise we would be giving the neural network the answer.
+
+---
+
+# 11. Current Dataset Architecture
+
+Our data is separated into three parts:
+
+```text
+                    SUMO
+                     │
+          ┌──────────┼──────────┐
+          ↓          ↓          ↓
+       Ground      GPS        CCTV
+       Truth
+          │          │          │
+          │          │          │
+          └──────────┼──────────┘
+                     ↓
+             sensor_dataset.json
+```
+
+### Ground Truth
+
+Contains information that SUMO knows exactly:
+
+```text
+position
+speed
+edge
+lane
+route
+route_index
+movement
+vehicle_type
+```
+
+### GPS
+
+Represents sparse probe-vehicle observations:
+
+```text
+position
+speed
+edge
+lane
+vehicle_type
+timestamp
+```
+
+### CCTV
+
+Represents local camera observations:
+
+```text
+camera_id
+position
+speed
+edge
+lane
+lane_position
+vehicle_type
+timestamp
+```
+
+The important principle is:
+
+```text
+Sensors → observations
+
+SUMO → ground truth
+```
+
+The neural network will later learn to reconstruct hidden traffic state from the observations.
+
+---
+
+# 12. Current Development Order
+
+We are intentionally building the system in stages:
+
+```text
+1. SUMO simulation
+       ↓
+2. Sensor simulation
+       ↓
+3. JSON dataset
+       ↓
+4. Dataset validation
+       ↓
+5. Inspect and correct data
+       ↓
+6. State representation
+       ↓
+7. ML state estimator
+       ↓
+8. Traffic prediction
+       ↓
+9. Control
+```
+
+We are currently around **step 4**.
+
+The immediate goal is **not yet to train the neural network**.
+
+First we need to make sure that the dataset is structurally and logically correct.
+
+```
+
+
