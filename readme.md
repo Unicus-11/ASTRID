@@ -1,8 +1,7 @@
-Yes. Since this is your `README.md`, I would keep it focused on **how the SUMO project works**, the traffic composition, and the route/edge logic that we just established.
 
-Here is a clean replacement/addition for the README:
 
 ````markdown
+
 # ASTRID — Squire Junction Multi-Lane Simulation
 
 ASTRID uses **SUMO (Simulation of Urban MObility)** to simulate traffic at the Squire Junction multi-lane network.
