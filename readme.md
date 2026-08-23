@@ -1,7 +1,4 @@
 
-
-````markdown
-
 # ASTRID — Squire Junction Multi-Lane Simulation
 
 ASTRID uses **SUMO (Simulation of Urban MObility)** to simulate traffic at the Squire Junction multi-lane network.
