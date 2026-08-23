@@ -579,3 +579,478 @@ SUMO movement
 That is the complete foundation of **Phase 1: Building the World**.
 
 Only after this world behaves correctly should we add the next layer: **observing the world and controlling it**.
+
+
+# `multi_lane.txt` — How One Car Moves Through Our SUMO World
+
+Think of the simulation as a **small virtual road world**.
+
+```text
+                NORTH
+                  ↑
+                  │
+            ┌─────┴─────┐
+            │  3 LANES  │
+            │     ↓     │
+            │            │
+WEST  ──────┤  JUNCTION ├────── EAST
+            │            │
+            │  3 LANES  │
+            │     ↑      │
+            └─────┬──────┘
+                  │
+                  ↓
+                SOUTH
+```
+
+The important question is:
+
+> **How does one car go from being created to leaving the simulation?**
+
+---
+🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟🌟
+
+## 1. First, SUMO creates the world
+
+Our `sq.net.xml` is the **road world**.
+
+It tells SUMO:
+
+```text
+Where are the roads?
+Where is the junction?
+How many lanes does each road have?
+How long are the roads?
+How fast can vehicles travel?
+Which lanes connect to which roads?
+Where are the traffic lights?
+```
+
+So:
+
+```text
+sq.net.xml
+     ↓
+SUMO knows the ROAD WORLD
+```
+
+It does **not** create the cars yet.
+
+---
+
+# 2. Then we create a car
+
+Our vehicle information comes from the route files.
+
+For example:
+
+```xml
+<vType id="car"
+       length="4.50"
+       maxSpeed="25.00"
+       accel="3.5"
+       decel="2.8"/>
+```
+
+This tells SUMO:
+
+> A `car` is 4.5 m long, can travel up to 25 m/s, accelerates at 3.5 m/s², etc.
+
+Then a vehicle is created:
+
+```xml
+<vehicle id="10.0"
+         type="car"
+         depart="0.00"
+         departLane="free"
+         departSpeed="random">
+```
+
+Meaning:
+
+```text
+Car #10
+   │
+   ├── Type = car
+   ├── Starts at = 0 seconds
+   ├── Lane = SUMO chooses a valid lane
+   └── Starting speed = random
+```
+
+---
+
+# 3. Where does the car go?
+
+The route tells it.
+
+For example:
+
+```xml
+<route edges="1i 4o 54o"/>
+```
+
+Think:
+
+```text
+       ROAD             JUNCTION             ROAD
+
+       1i
+        │
+        │
+        ↓
+   ┌───────────┐
+   │ JUNCTION  │
+   └───────────┘
+        │
+        ↓
+       4o
+        │
+        ↓
+       54o
+```
+
+So the route means:
+
+> Enter through `1i`, cross the junction, leave through `4o`, and continue onto `54o`.
+
+The route does **not** mean the car teleports between roads.
+
+SUMO physically moves the vehicle through the network according to the road geometry, lanes, connections, traffic lights, and vehicle behaviour.
+
+---
+
+# 4. But which lane does it use?
+
+This is where `sq.con.xml` becomes important.
+
+For example:
+
+```xml
+<connection from="1i" to="2o"
+            fromLane="1"
+            toLane="0"/>
+```
+
+This says:
+
+```text
+1i, Lane 1
+     │
+     │
+     ↓
+  JUNCTION
+     │
+     ↓
+2o, Lane 0
+```
+
+So `sq.con.xml` defines **which lanes can connect to which outgoing lanes**.
+
+In simple terms:
+
+```text
+sq.net.xml
+    ↓
+"What roads and lanes exist?"
+
+sq.con.xml
+    ↓
+"How can those lanes connect?"
+```
+
+---
+
+# 5. Now the car encounters traffic
+
+Suppose several cars are coming from the same road:
+
+```text
+        Car 1
+          ↓
+        Car 2
+          ↓
+        Car 3
+          ↓
+        Car 4
+          ↓
+      [JUNCTION]
+```
+
+The cars cannot simply drive through each other.
+
+SUMO applies vehicle behaviour.
+
+For example, our cars use the **Krauss car-following model**.
+
+Conceptually:
+
+```text
+Car 1
+  ↓
+maintains distance
+  ↓
+Car 2
+```
+
+If the car in front slows down:
+
+```text
+Front car slows
+       ↓
+Following car reacts
+       ↓
+Following car slows
+```
+
+This is how traffic naturally forms.
+
+The important point is:
+
+> **The route tells the car where it wants to go. Vehicle models determine how it physically behaves while travelling.**
+
+---
+
+# 6. Then comes the traffic signal
+
+Our junction has a traffic-light program.
+
+For example:
+
+```xml
+<phase duration="25" state="GGrrrrGGrrrr"/>
+<phase duration="7"  state="yyrrrryyrrrr"/>
+```
+
+Very simply:
+
+```text
+G = Green
+y = Yellow
+r = Red
+```
+
+So a simplified cycle might look like:
+
+```text
+GREEN
+  │
+  │ 25 seconds
+  ↓
+YELLOW
+  │
+  │ 7 seconds
+  ↓
+RED
+  │
+  ↓
+another direction gets GREEN
+```
+
+The exact signal state has multiple characters because the junction controls **multiple connections/lane movements at the same time**.
+
+So traffic lights don't simply say:
+
+> "North is green."
+
+They control specific **links/movements through the junction**.
+
+---
+
+# 7. What happens to our car?
+
+Imagine our car is here:
+
+```text
+          🚗
+          ↓
+          ↓
+          ↓
+
+       [ RED ]
+
+      JUNCTION
+```
+
+The car cannot enter the controlled movement while its signal is red.
+
+So it slows/stops:
+
+```text
+          🚗
+          ↓
+          🚗
+          🚗
+
+       [ RED ]
+
+      JUNCTION
+```
+
+Then:
+
+```text
+RED
+ ↓
+GREEN
+```
+
+The car can proceed:
+
+```text
+          ↓
+          ↓
+       GREEN
+          ↓
+      [JUNCTION]
+          ↓
+          ↓
+          🚗
+```
+
+Then the signal eventually changes:
+
+```text
+GREEN
+  ↓
+YELLOW
+  ↓
+RED
+```
+
+The **yellow duration is whatever the signal program specifies**. It is not necessarily 5 seconds; in your current network, the XML you showed contains phases such as 7 seconds.
+
+---
+
+# 8. The car leaves the junction
+
+Once the car has crossed:
+
+```text
+1i
+ ↓
+ ↓
+[JUNCTION]
+     ↓
+     ↓
+    4o
+     ↓
+    54o
+```
+
+It continues along its route.
+
+Eventually it reaches the end of its route.
+
+Then:
+
+```text
+CAR
+ ↓
+reaches route end
+ ↓
+leaves simulation
+```
+
+That vehicle no longer appears as an active vehicle in SUMO.
+
+---
+
+# The whole story in one picture
+
+```text
+                    sq.net.xml
+                         │
+                         ▼
+                ┌─────────────────┐
+                │   ROAD WORLD     │
+                │                  │
+                │ roads            │
+                │ lanes            │
+                │ junction         │
+                │ geometry         │
+                │ traffic lights   │
+                └────────┬────────┘
+                         │
+                         │
+                  sq.rou.xml
+                         │
+                         ▼
+                    CREATE CAR
+                         │
+                         ▼
+                 ┌──────────────┐
+                 │ Car + Route  │
+                 │              │
+                 │ 1i → 4o →54o │
+                 └──────┬───────┘
+                        │
+                        ▼
+                 SELECT/USE LANE
+                        │
+                        ▼
+                 DRIVE TOWARD
+                  THE JUNCTION
+                        │
+                        ▼
+              ┌──────────────────┐
+              │ Traffic signal  │
+              │                  │
+              │ RED → stop       │
+              │ GREEN → go       │
+              │ YELLOW → change  │
+              └────────┬─────────┘
+                       │
+                       ▼
+                    JUNCTION
+                       │
+                       ▼
+                 4o → 54o
+                       │
+                       ▼
+                  CAR CONTINUES
+                       │
+                       ▼
+                  ROUTE ENDS
+                       │
+                       ▼
+                 CAR EXITS SUMO
+```
+
+## The four files in one sentence each
+
+| File           | Simple meaning                                                                 |
+| -------------- | ------------------------------------------------------------------------------ |
+| `sq.net.xml`   | **Builds the world** — roads, lanes, junctions, geometry, signals              |
+| `sq.con.xml`   | **Defines connections** — which lanes can connect to which movements           |
+| `sq.vtype.xml` | **Defines vehicle types** — bike, car, HGV, bus and their behaviour            |
+| `sq.flow.xml`  | **Defines traffic demand** — how many vehicles, where they start/end, and when |
+| `sq.rou.xml`   | **Contains the resulting vehicles/routes** that SUMO actually uses             |
+
+So the fundamental chain is:
+
+```text
+BUILD THE WORLD
+sq.net.xml
+     ↓
+DEFINE VEHICLES
+sq.vtype.xml
+     ↓
+DEFINE TRAFFIC
+sq.flow.xml
+     ↓
+CREATE ROUTES/VEHICLES
+sq.rou.xml
+     ↓
+SUMO SIMULATES
+     ↓
+cars physically move
+     ↓
+traffic forms
+     ↓
+signals control movement
+     ↓
+vehicles eventually leave
+```
+
+That is essentially **Phase 1: building the virtual traffic world**.
+
