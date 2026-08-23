@@ -1,7 +1,27 @@
 import traci
 import random
+import json
 
 
+# ============================================================
+# SCENARIO CONFIGURATION
+# ============================================================
+
+with open("../scenarios/baseline.json", "r") as f:
+
+    SCENARIO = json.load(f)
+
+
+print(
+    f"Loaded scenario: {SCENARIO['name']}"
+)  
+
+
+SIMULATION_END = SCENARIO["simulation_end"]
+
+VEHICLE_DEMAND = SCENARIO["vehicle_demand"]
+
+print("Vehicle demand:", VEHICLE_DEMAND)
 
 # ============================================================
 # SENSOR CONFIGURATION: not add fake camera errors, GPS noise, missed detections, occlusion, etc. yet.

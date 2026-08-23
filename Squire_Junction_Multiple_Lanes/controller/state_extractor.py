@@ -1,6 +1,9 @@
 import traci
 import json
-from sensor_simulator import get_sensor_data
+from sensor_simulator import (
+    get_sensor_data,
+    SIMULATION_END
+)
 
 
 SUMO_BINARY = "sumo-gui"
@@ -26,7 +29,11 @@ for i, link in enumerate(links):
     print(i, "->", link)
     
  
-
+INCOMING_EDGES = { 
+    "1i", 
+    "2i",
+    "3i", 
+    "4i" }
 
 # ============================================================
 # INCOMING EDGE → DIRECTION
@@ -123,14 +130,50 @@ previous_edge_vehicles = {
     for edge_id in DIRECTION_EDGES.values()
 }
 
+# ============================================================
+# DATASET
+# ============================================================
+
+dataset = []
+
+
+# ============================================================
+# PREVIOUS VEHICLES
+# ============================================================
+#
+# Used to calculate directional flow.
+#
+# At the beginning there are no previously observed vehicles.
+# ============================================================
+
+previous_edge_vehicles = {
+    edge_id: set()
+    for edge_id in DIRECTION_EDGES.values()
+}
+
 
 # ============================================================
 # SIMULATION LOOP
 # ============================================================
 
-for step in range(100):
+print("Simulation end:", SIMULATION_END)
+
+for step in range(SIMULATION_END):
+
+    # --------------------------------------------------------
+    # Advance SUMO by one timestep
+    # --------------------------------------------------------
 
     traci.simulationStep()
+    
+    # 1. Ground truth
+    # 2. Traffic state
+    # 3. GPS
+    # 4. CCTV
+    # 5. Camera aggregation
+    # 6. Create ONE complete record
+    # 7. Append record
+    # 8. Display
 
 
     # ========================================================
@@ -179,7 +222,7 @@ for step in range(100):
 
 
         # ----------------------------------------------------
-        # Speed
+        # Average speed
         # ----------------------------------------------------
 
         if vehicles_on_edge:
@@ -189,9 +232,7 @@ for step in range(100):
                 for vehicle_id in vehicles_on_edge
             ]
 
-            average_speed = (
-                sum(speeds) / len(speeds)
-            )
+            average_speed = sum(speeds) / len(speeds)
 
         else:
 
@@ -210,15 +251,13 @@ for step in range(100):
 
 
         # ----------------------------------------------------
-        # Directional flow
+        # Flow
         #
-        # Vehicles that were NOT on this edge in the
-        # previous timestep but are on it now.
+        # Number of vehicles that appeared on this edge
+        # since the previous timestep.
         # ----------------------------------------------------
 
-        current_vehicle_set = set(
-            vehicles_on_edge
-        )
+        current_vehicle_set = set(vehicles_on_edge)
 
         new_vehicles = (
             current_vehicle_set
@@ -229,7 +268,7 @@ for step in range(100):
 
 
         # ----------------------------------------------------
-        # Save state
+        # Save directional state
         # ----------------------------------------------------
 
         state[direction] = {
@@ -247,7 +286,10 @@ for step in range(100):
         }
 
 
+        # ----------------------------------------------------
         # Update previous vehicles
+        # ----------------------------------------------------
+
         previous_edge_vehicles[edge_id] = (
             current_vehicle_set
         )
@@ -267,6 +309,7 @@ for step in range(100):
 
     cctv_observations = sensor_data["cctv"]
 
+
     cctv_count = len(
         cctv_observations
     )
@@ -275,22 +318,15 @@ for step in range(100):
     # ========================================================
     # 4. CAMERA-BY-CAMERA AGGREGATION
     # ========================================================
-    #
-    # camera_id is intentionally preserved.
-    #
-    # This gives:
-    #
-    # north_camera → detections
-    # south_camera → detections
-    # east_camera  → detections
-    # west_camera  → detections
-    #
-    # ========================================================
 
     camera_counts = {
+
         "north_camera": 0,
+
         "south_camera": 0,
+
         "east_camera": 0,
+
         "west_camera": 0
     }
 
@@ -304,31 +340,53 @@ for step in range(100):
             camera_counts[camera_id] += 1
 
 
+    # ========================================================
+    # 5. CREATE ONE COMPLETE DATASET RECORD
+    # ========================================================
 
-# ============================================================
-# DATASET
-# ============================================================
+    record = {
 
-dataset = []
+        "step": step,
 
+        # -------------------------------
+        # Ground truth
+        # -------------------------------
 
-# ============================================================
-# SIMULATION LOOP
-# ============================================================
+        "traffic": state,
 
-for step in range(100):
+        # -------------------------------
+        # Sensor measurements
+        # -------------------------------
 
-    traci.simulationStep()
+        "gps_count": gps_count,
 
-    sensor_data = get_sensor_data()
+        "cctv_count": cctv_count,
 
-    dataset.append(sensor_data)
+        # -------------------------------
+        # Camera measurements
+        # -------------------------------
+
+        "camera_counts": camera_counts,
+
+        # -------------------------------
+        # Raw simulated sensor data
+        # -------------------------------
+
+        "sensors": sensor_data
+    }
 
 
     # ========================================================
-    # 5. DISPLAY
+    # 6. APPEND TO DATASET
     # ========================================================
-    
+
+    dataset.append(record)
+
+
+    # ========================================================
+    # 7. DISPLAY
+    # ========================================================
+
     print(
         f"\nStep: {step:3d}"
     )
@@ -367,8 +425,6 @@ for step in range(100):
     )
 
 
-    
-
 # ============================================================
 # SAVE DATASET
 # ============================================================
@@ -381,6 +437,10 @@ with open("sensor_dataset.json", "w") as f:
         indent=2
     )
 
+
+print(
+    f"\nDataset saved: {len(dataset)} records"
+)
 
 
 # ============================================================
