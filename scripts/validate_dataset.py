@@ -90,7 +90,7 @@ traffic_fields = [
     "vehicles",
     "queue",
     "speed",
-    "flow",
+    "approach_arrivals",
 ]
 
 
@@ -349,7 +349,7 @@ for direction in directions:
         "vehicles",
         "queue",
         "speed",
-        "flow",
+        "approach_arrivals",
     ]:
 
         values = [

@@ -559,3 +559,50 @@ First we need to make sure that the dataset is structurally and logically correc
 ```
 
 
+                 scenario.json
+                      │
+             ┌────────┴─────────┐
+             │                   │
+             ▼                   ▼
+     scenario_builder       sensor config
+             │                   │
+       ┌─────┴─────┐             │
+       ▼           ▼             │
+   vtype.xml     flow.xml        │
+       │           │             │
+       └─────┬─────┘             │
+             ▼                   │
+         duarouter               │
+             │                   │
+             ▼                   │
+          rou.xml                │
+             │                   │
+             └──────┬────────────┘
+                    ▼
+                   SUMO
+                    │
+                    ▼
+             actual vehicles
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+     ground truth       sensor_simulator
+                              │
+                       ┌──────┴──────┐
+                       ▼             ▼
+                      GPS           CCTV
+                       │             │
+                       └──────┬──────┘
+                              ▼
+                       state_extractor
+                              │
+                              ▼
+                     sensor_dataset.json
+
+
+
+
+
+
+                     GO ==> DISHA@LAPTOP-JO1S4POA MINGW64 ~/SIH/ASTRID/scripts (main)
+$ python scenario_builder.py

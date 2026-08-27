@@ -1,0 +1,339 @@
+In sensor_simulator.py, we generate three types of information:
+
+1. GPS observations
+
+For the vehicles randomly assigned GPS:
+
+Vehicle ID
+Position (x, y)
+Speed
+Road/edge
+Lane
+Vehicle type
+Timestamp
+
+2. CCTV observations
+
+For vehicles within the last 150 m of the North, South, East, or West approach:
+
+Camera ID
+Vehicle ID
+Position (x, y)
+Speed
+Road/edge
+Lane
+Position on lane
+Vehicle type
+Timestamp
+3. SUMO ground truth
+
+For every vehicle, regardless of whether it has GPS or is visible to CCTV:
+
+Vehicle ID
+Position
+Speed
+Edge
+Lane
+Lane position
+Route
+Route index
+Movement (e.g. north_to_south, west_to_east)
+Vehicle type
+Timestamp
+
+
+GPS and CCTV represent what the sensors can observe, while ground truth contains the complete SUMO information used for evaluation.
+
+
+The sensor simulator generates partial observations from SUMO.
+
+GPS is assigned probabilistically: when a vehicle first enters:
+
+ `random() < GPS_PENETRATION`
+
+determines whether it has GPS, and this status remains fixed for its trip, giving roughly **15–20% GPS vehicles** with natural variation. **CCTV covers the last 150 m of each North, South, East, and West approach**, so vehicles near the junction are detected only when they enter a camera's coverage area. SUMO ground truth is kept separately for evaluation.
+
+
+```python
+random_generator.random() < GPS_PENETRATION
+```
+
+This generates a random number between **0 and 1** and checks whether it is below the configured GPS penetration.
+
+For example, if:
+
+```python
+GPS_PENETRATION = 0.20
+```
+
+then:
+
+```text
+random = 0.13 → 0.13 < 0.20 → GPS ✓
+random = 0.67 → 0.67 < 0.20 → No GPS ✗
+```
+
+So each vehicle has a **20% probability** of being assigned GPS. Because the result is stored in `gps_probe_vehicles`, the vehicle keeps the same GPS status for its entire trip.
+ 
+
+ 
+
+[[[[[[[]]]]]]]
+
+
+
+
+
+
+ASTRID - SENSOR AND STATE EXTRACTOR
+===================================
+
+RUNNING
+-------
+
+From the controller folder:
+
+    cd controller
+    python state_extractor.py
+
+The script runs SUMO and generates:
+
+    GPS observations
+    CCTV observations
+    SUMO Ground Truth
+
+
+1. GPS
+------
+
+GPS represents sparse connected/probe vehicles.
+
+id            = vehicle ID
+position      = current x,y position
+speed         = vehicle speed
+edge          = current road segment
+lane          = current lane
+vehicle_type  = vehicle class
+timestamp     = simulation time
+
+GPS only observes selected probe vehicles,
+not every vehicle.
+
+
+2. CCTV
+-------
+
+CCTV represents roadside cameras.
+
+id            = vehicle ID
+camera_id     = camera that detected the vehicle
+position      = current x,y position
+speed         = vehicle speed
+edge          = current road segment
+lane          = current lane
+lane_position = position along the lane
+vehicle_type  = vehicle class
+timestamp     = simulation time
+
+CCTV only observes vehicles inside its
+camera coverage.
+
+
+3. SUMO GROUND TRUTH
+--------------------
+
+Ground truth is the complete information
+available from SUMO.
+
+id            = vehicle ID
+position      = current position
+speed         = current speed
+edge          = current road segment
+lane          = current lane
+lane_position = position along lane
+route         = complete route of the vehicle
+route_index   = current position in the route
+movement      = higher-level movement
+vehicle_type  = vehicle class
+timestamp     = simulation time
+
+
+ROUTE vs MOVEMENT
+-----------------
+
+Route = sequence of road edges.
+
+Example:
+
+    4i -> 2o
+
+Movement = meaning of that route.
+
+Example:
+
+    north_to_east
+
+Movement is derived from the route.
+
+
+WHY GROUND TRUTH IS SEPARATE
+----------------------------
+
+Sensors provide incomplete information.
+
+    GPS + CCTV
+         |
+         v
+    Future AI Model
+         |
+         v
+    Estimated Hidden State
+
+SUMO provides the correct answer:
+
+    SUMO Route/Movement
+           |
+           v
+    Training Label / Ground Truth
+
+We do NOT give route or movement to GPS/CCTV.
+The future model must learn to estimate it
+from sensor observations.
+
+
+CURRENT STATUS
+--------------
+
+DONE:
+- SUMO intersection
+- Heterogeneous vehicles
+- Sparse GPS simulation
+- CCTV simulation
+- Position, speed, edge and lane extraction
+- Route and movement ground truth
+- Sensor/ground-truth separation
+
+NEXT:
+- Create training dataset
+- Train hidden-state/movement model
+- Add queue and traffic-state estimation
+- Add physics and prediction
+- Add signal control
+
+
+
+# IMPORTANT:
+# Sensor data does NOT contain the vehicle's intended movement.
+# GPS and CCTV only provide observable information such as
+# position, speed, lane, and time.
+#
+# The neural network will later learn to estimate the hidden
+# movement/state from these sensor observations.
+#
+# During training, SUMO provides the actual route/movement.
+# This acts as the ground-truth label for the neural network.
+#
+# Therefore:
+#
+#     Sensor observations -> Neural Network -> Estimated movement
+#                                      ↑
+#                           trained using SUMO movement
+#
+# We must NOT put SUMO's route/movement into GPS or CCTV data,
+# because that would give the model the answer directly.
+
+
+
+
+
+
+
+
+
+
+
+
+                 SCENARIO GENERATOR
+                 create_scenarios.py
+                         │
+                         ▼
+                ┌─────────────────┐
+                │ scenario JSON   │
+                │                 │
+                │ vehicles=2500   │
+                │ bikes=40%       │
+                │ cars=40%        │
+                │ demand=high     │
+                │ GPS=50%         │
+                └────────┬────────┘
+                         │
+                         ▼
+              SUMO SCENARIO BUILDER
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+         sq.flow.xml           sq.rou.xml
+              │                     │
+              └──────────┬──────────┘
+                         ▼
+                    SUMO RUN
+                         │
+                         ▼
+                 VEHICLES MOVE
+                         │
+                         ▼
+              ┌──────────────────┐
+              │ state_extractor  │
+              └────────┬─────────┘
+                       ▼
+                dataset JSON
+                       │
+                       ▼
+             analyze_dataset.py
+             validate_dataset.py
+                       │
+                       ▼
+                  ML DATASET
+
+
+
+                                   ORIGINAL FILES
+                       │
+          ┌────────────┼────────────┐
+          ↓            ↓            ↓
+     sq.net.xml   sq.vtype.xml  sq.flow.xml
+       ORIGINAL     ORIGINAL      ORIGINAL
+                                    │
+                                    │
+                           reference only
+                                    │
+                                    ▼
+                         create_scenarios.py
+                                    │
+                                    ▼
+                         scenario configurations
+                                    │
+                                    ▼
+                         scenario_builder.py
+                                    │
+                  ┌─────────────────┴────────────────┐
+                  ↓                                  ↓
+          scenario/sq.flow.xml              scenario settings
+                  │
+                  ▼
+              duarouter
+                  │
+                  ▼
+          scenario/sq.rou.xml
+                  │
+                  ▼
+                SUMO
+                  │
+                  ▼
+          state_extractor.py
+                  │
+                  ▼
+          scenario/dataset.json
+                  │
+                  ▼
+       analyze + validate + ML

@@ -1,13 +1,5 @@
 # Phase 1 — Building the Traffic World in SUMO
 
-This phase is about **building and understanding the simulated traffic world** before adding any controller, sensor model, or machine-learning system.
-
-The basic idea is:
-
-> **SUMO defines the physical road world, the vehicles, how vehicles move through that world, and the traffic rules that govern their movement.**
-
----
-
 ## 1. What is SUMO?
 
 **SUMO (Simulation of Urban MObility)** is an open-source **microscopic road traffic simulator**.
@@ -27,11 +19,6 @@ For every vehicle, SUMO can determine things such as:
 
 SUMO therefore provides the **virtual road environment** in which ASTRID operates.
 
-### Why SUMO?
-
-SUMO provides a common simulation framework instead of requiring every traffic-research project to build its own road network, vehicle model, routing system, traffic-light system, and simulation engine.
-
-It is also open source, allowing researchers to modify and extend the simulator.
 
 ---
 

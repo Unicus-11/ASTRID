@@ -1,0 +1,26 @@
+{
+  "name": "east_west_heavy",
+  "seed": 44,
+  "simulation_end": 3600,
+  "total_vehicles": 1600,
+  "vehicle_distribution": {
+    "bike": 0.5,
+    "car": 0.3,
+    "bus": 0.1,
+    "hgv": 0.1
+  },
+  "approach_distribution": {
+    "north": 0.1,
+    "south": 0.1,
+    "east": 0.35,
+    "west": 0.45
+  },
+  "movement_distribution": {
+    "left": 0.3,
+    "straight": 0.5,
+    "right": 0.2
+  },
+  "demand": "high",
+  "gps_penetration": 0.25,
+  "cctv_detection": 1.0
+}
