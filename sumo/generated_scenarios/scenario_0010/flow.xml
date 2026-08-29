@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <route id="rt_4i_left" edges="4i 2o 52o"/>
+    <route id="rt_4i_straight" edges="4i 3o 53o"/>
+    <route id="rt_4i_right" edges="4i 1o 51o"/>
+    <route id="rt_3i_left" edges="3i 1o 51o"/>
+    <route id="rt_3i_straight" edges="3i 4o 54o"/>
+    <route id="rt_3i_right" edges="3i 2o 52o"/>
+    <route id="rt_2i_left" edges="2i 3o 53o"/>
+    <route id="rt_2i_straight" edges="2i 1o 51o"/>
+    <route id="rt_2i_right" edges="2i 4o 54o"/>
+    <route id="rt_1i_left" edges="1i 4o 54o"/>
+    <route id="rt_1i_straight" edges="1i 2o 52o"/>
+    <route id="rt_1i_right" edges="1i 3o 53o"/>
+    <flow id="f_4i_left_0" type="mix_scenario_0010" route="rt_4i_left" begin="0" end="3600" vehsPerHour="569.415" departLane="best" departSpeed="max"/>
+    <flow id="f_4i_straight_1" type="mix_scenario_0010" route="rt_4i_straight" begin="0" end="3600" vehsPerHour="341.649" departLane="best" departSpeed="max"/>
+    <flow id="f_4i_right_2" type="mix_scenario_0010" route="rt_4i_right" begin="0" end="3600" vehsPerHour="227.766" departLane="best" departSpeed="max"/>
+    <flow id="f_3i_left_3" type="mix_scenario_0010" route="rt_3i_left" begin="0" end="3600" vehsPerHour="155.295" departLane="best" departSpeed="max"/>
+    <flow id="f_3i_straight_4" type="mix_scenario_0010" route="rt_3i_straight" begin="0" end="3600" vehsPerHour="93.177" departLane="best" departSpeed="max"/>
+    <flow id="f_3i_right_5" type="mix_scenario_0010" route="rt_3i_right" begin="0" end="3600" vehsPerHour="62.118" departLane="best" departSpeed="max"/>
+    <flow id="f_2i_left_6" type="mix_scenario_0010" route="rt_2i_left" begin="0" end="3600" vehsPerHour="155.295" departLane="best" departSpeed="max"/>
+    <flow id="f_2i_straight_7" type="mix_scenario_0010" route="rt_2i_straight" begin="0" end="3600" vehsPerHour="93.177" departLane="best" departSpeed="max"/>
+    <flow id="f_2i_right_8" type="mix_scenario_0010" route="rt_2i_right" begin="0" end="3600" vehsPerHour="62.118" departLane="best" departSpeed="max"/>
+    <flow id="f_1i_left_9" type="mix_scenario_0010" route="rt_1i_left" begin="0" end="3600" vehsPerHour="155.295" departLane="best" departSpeed="max"/>
+    <flow id="f_1i_straight_10" type="mix_scenario_0010" route="rt_1i_straight" begin="0" end="3600" vehsPerHour="93.177" departLane="best" departSpeed="max"/>
+    <flow id="f_1i_right_11" type="mix_scenario_0010" route="rt_1i_right" begin="0" end="3600" vehsPerHour="62.118" departLane="best" departSpeed="max"/>
+</routes>

@@ -1,0 +1,68 @@
+{
+  "scenario_id": "scenario_0008",
+  "seed": 1103,
+  "split": "train",
+  "design_method": "stratified_lhs",
+  "demand_class": "VERY_HIGH",
+  "demand_rate_veh_per_hour": 2546.31,
+  "approach_pattern": "north_heavy",
+  "approach_distribution": {
+    "north": 0.45,
+    "south": 0.2,
+    "east": 0.2,
+    "west": 0.15
+  },
+  "movement_pattern": "balanced",
+  "movement_distribution": {
+    "left": 0.33,
+    "straight": 0.34,
+    "right": 0.33
+  },
+  "composition_pattern": "hgv_heavy",
+  "vehicle_composition": {
+    "bike": 0.35,
+    "car": 0.35,
+    "hgv": 0.25,
+    "bus": 0.05
+  },
+  "arrival_pattern": "constant",
+  "simulation_begin": 0,
+  "simulation_end": 3600,
+  "camera_range_m": 150.0,
+  "expected_regime_hint": "likely free-flow to moderate",
+  "replicates": null,
+  "notes": "Categorical archetype via stratified round-robin; demand via 1-D LHS.",
+  "name": "scenario_0008",
+  "demand": "VERY_HIGH",
+  "demand_rate": 2546.31,
+  "_demand_allocation_diagnostics": {
+    "requested_total_veh_per_hour": 2546.31,
+    "allocated_total_veh_per_hour": 2546.31,
+    "veh_per_hour_difference": -0.0,
+    "requested_vehicle_count_over_window": 2546,
+    "expected_vehicle_count_over_window": 2546
+  },
+  "_od_diagnostics": {
+    "4i[left]->2o->52o": 378.127,
+    "4i[straight]->3o->53o": 389.5854,
+    "4i[right]->1o->51o": 378.127,
+    "3i[left]->1o->51o": 168.0565,
+    "3i[straight]->4o->54o": 173.1491,
+    "3i[right]->2o->52o": 168.0565,
+    "2i[left]->3o->53o": 168.0565,
+    "2i[straight]->1o->51o": 173.1491,
+    "2i[right]->4o->54o": 168.0565,
+    "1i[left]->4o->54o": 126.0423,
+    "1i[straight]->2o->52o": 129.8618,
+    "1i[right]->3o->53o": 126.0423
+  },
+  "_webster_diagnostic": {
+    "ns_demand_veh_per_hour": 1655.1,
+    "ew_demand_veh_per_hour": 891.2,
+    "y_ns": 0.525,
+    "y_ew": 0.283,
+    "Y": 0.808,
+    "regime": "undersaturated",
+    "_caveat": "Aggregate NS/EW capacity ratio only, using normal_controller.py's own saturation-flow constants. Ignores per-movement (left/straight/right) capacity, stochastic arrival variance, and signal cycling detail -- it is a planning diagnostic, not a queue prediction."
+  }
+}

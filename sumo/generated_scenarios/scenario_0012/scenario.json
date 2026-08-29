@@ -1,0 +1,68 @@
+{
+  "scenario_id": "scenario_0012",
+  "seed": 1999,
+  "split": "ood",
+  "design_method": "ood",
+  "demand_class": "VERY_HIGH",
+  "demand_rate_veh_per_hour": 2800.0,
+  "approach_pattern": "north_heavy",
+  "approach_distribution": {
+    "north": 0.45,
+    "south": 0.2,
+    "east": 0.2,
+    "west": 0.15
+  },
+  "movement_pattern": "left_heavy",
+  "movement_distribution": {
+    "left": 0.5,
+    "straight": 0.3,
+    "right": 0.2
+  },
+  "composition_pattern": "bike_heavy",
+  "vehicle_composition": {
+    "bike": 0.7,
+    "car": 0.2,
+    "hgv": 0.05,
+    "bus": 0.05
+  },
+  "arrival_pattern": "burst",
+  "simulation_begin": 0,
+  "simulation_end": 3600,
+  "camera_range_m": 150.0,
+  "expected_regime_hint": "near capacity by Webster Y -- congestion plausible (burst arrival -- expect transient shockwave growth)",
+  "replicates": null,
+  "notes": "Deliberately unusual combination, reserved for generalization testing. Must never be used for training/validation/test-set model selection.",
+  "name": "scenario_0012",
+  "demand": "VERY_HIGH",
+  "demand_rate": 2800.0,
+  "_demand_allocation_diagnostics": {
+    "requested_total_veh_per_hour": 2800.0,
+    "allocated_total_veh_per_hour": 2800.0,
+    "veh_per_hour_difference": 0.0,
+    "requested_vehicle_count_over_window": 2800,
+    "expected_vehicle_count_over_window": 2800
+  },
+  "_od_diagnostics": {
+    "4i[left]->2o->52o": 630.0,
+    "4i[straight]->3o->53o": 378.0,
+    "4i[right]->1o->51o": 252.0,
+    "3i[left]->1o->51o": 280.0,
+    "3i[straight]->4o->54o": 168.0,
+    "3i[right]->2o->52o": 112.0,
+    "2i[left]->3o->53o": 280.0,
+    "2i[straight]->1o->51o": 168.0,
+    "2i[right]->4o->54o": 112.0,
+    "1i[left]->4o->54o": 210.0,
+    "1i[straight]->2o->52o": 126.0,
+    "1i[right]->3o->53o": 84.0
+  },
+  "_webster_diagnostic": {
+    "ns_demand_veh_per_hour": 1820.0,
+    "ew_demand_veh_per_hour": 980.0,
+    "y_ns": 0.578,
+    "y_ew": 0.311,
+    "Y": 0.889,
+    "regime": "near_saturation",
+    "_caveat": "Aggregate NS/EW capacity ratio only, using normal_controller.py's own saturation-flow constants. Ignores per-movement (left/straight/right) capacity, stochastic arrival variance, and signal cycling detail -- it is a planning diagnostic, not a queue prediction."
+  }
+}

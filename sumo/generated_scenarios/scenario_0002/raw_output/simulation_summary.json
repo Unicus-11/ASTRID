@@ -1,0 +1,20 @@
+{
+  "scenario_id": "scenario_0002",
+  "seed": 1002,
+  "simulation_begin_s": 0,
+  "simulation_end_s": 3600,
+  "step_length_s": 1.0,
+  "configured_demand_rate_veh_per_hour": 2240.0,
+  "demand_class": "HIGH",
+  "approach_pattern": "balanced",
+  "movement_pattern": "balanced",
+  "composition_pattern": "baseline_heterogeneous",
+  "arrival_pattern": "burst",
+  "total_departed_vehicles": 631,
+  "total_arrived_vehicles": 516,
+  "unique_vehicle_ids_recorded": 631,
+  "trajectory_rows": 191103,
+  "maximum_active_vehicles": 115,
+  "trajectory_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\sumo\\generated_scenarios\\scenario_0002\\raw_output\\vehicle_trajectories.csv",
+  "note": "Raw SUMO ground truth only. No queue, density, flow, shockwave, camera or GPS features were calculated."
+}

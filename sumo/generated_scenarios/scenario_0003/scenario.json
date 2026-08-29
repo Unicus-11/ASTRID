@@ -1,0 +1,68 @@
+{
+  "scenario_id": "scenario_0003",
+  "seed": 1003,
+  "split": "train",
+  "design_method": "hand_designed",
+  "demand_class": "MEDIUM",
+  "demand_rate_veh_per_hour": 1600.0,
+  "approach_pattern": "east_west_heavy",
+  "approach_distribution": {
+    "north": 0.15,
+    "south": 0.15,
+    "east": 0.35,
+    "west": 0.35
+  },
+  "movement_pattern": "left_heavy",
+  "movement_distribution": {
+    "left": 0.5,
+    "straight": 0.3,
+    "right": 0.2
+  },
+  "composition_pattern": "baseline_heterogeneous",
+  "vehicle_composition": {
+    "bike": 0.5,
+    "car": 0.3,
+    "hgv": 0.1,
+    "bus": 0.1
+  },
+  "arrival_pattern": "constant",
+  "simulation_begin": 0,
+  "simulation_end": 3600,
+  "camera_range_m": 150.0,
+  "expected_regime_hint": "likely free-flow to moderate",
+  "replicates": null,
+  "notes": "Moderate total volume, structurally concentrated by approach+turn -- interaction-effect test.",
+  "name": "scenario_0003",
+  "demand": "MEDIUM",
+  "demand_rate": 1600.0,
+  "_demand_allocation_diagnostics": {
+    "requested_total_veh_per_hour": 1600.0,
+    "allocated_total_veh_per_hour": 1600.0,
+    "veh_per_hour_difference": 0.0,
+    "requested_vehicle_count_over_window": 1600,
+    "expected_vehicle_count_over_window": 1600
+  },
+  "_od_diagnostics": {
+    "4i[left]->2o->52o": 120.0,
+    "4i[straight]->3o->53o": 72.0,
+    "4i[right]->1o->51o": 48.0,
+    "3i[left]->1o->51o": 120.0,
+    "3i[straight]->4o->54o": 72.0,
+    "3i[right]->2o->52o": 48.0,
+    "2i[left]->3o->53o": 280.0,
+    "2i[straight]->1o->51o": 168.0,
+    "2i[right]->4o->54o": 112.0,
+    "1i[left]->4o->54o": 280.0,
+    "1i[straight]->2o->52o": 168.0,
+    "1i[right]->3o->53o": 112.0
+  },
+  "_webster_diagnostic": {
+    "ns_demand_veh_per_hour": 480.0,
+    "ew_demand_veh_per_hour": 1120.0,
+    "y_ns": 0.152,
+    "y_ew": 0.356,
+    "Y": 0.508,
+    "regime": "undersaturated",
+    "_caveat": "Aggregate NS/EW capacity ratio only, using normal_controller.py's own saturation-flow constants. Ignores per-movement (left/straight/right) capacity, stochastic arrival variance, and signal cycling detail -- it is a planning diagnostic, not a queue prediction."
+  }
+}

@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASTRID - Adaptive Traffic Intelligence Platform</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="bg-grid"></div>
+
+    <header class="floating-header">
+
+        <div class="logo">
+            <div class="logo-mark-wrap">
+                <img
+                    src="/frontend/images/Astrid.png"
+                    alt="ASTRID logo"
+                    class="astrid-icon"
+                >
+            </div>
+    
+            <div class="logo-text">
+                <span class="brand-name">ASTRID</span>
+                <span class="brand-sub">Adaptive Traffic Intelligence Platform</span>
+            </div>
+        </div>
+    
+        <nav class="nav-links">
+            <a href="#">
+                Features
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </a>
+    
+            <a href="#">
+                Solutions
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </a>
+    
+            <a href="#">Research</a>
+        </nav>
+    
+        <div class="nav-actions">
+            <a href="#" class="sign-in">
+                <button class="btn-outline">View Prototype</button>
+            </a>
+        </div>
+    
+    </header>
+
+    <main>
+        <section class="hero-section" id="interactive-area">
+            <div class="radar-container">
+                <div class="radar"></div>
+            </div>
+
+            <div class="container">
+                <div class="hero-content">
+                    <h1>Intelligence at<br> Every <span>Intersection</span></h1>
+                    <p class="subtitle">Estimate hidden queues and traffic conditions from partial observations using simulation, physics, and intelligent inference</p>
+                    
+                    <div class="button-group">
+                        <button class="btn-primary">View Prototype <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+                        <button class="btn-secondary">Explore ASTRID</button>
+                    </div>
+
+                    <div class="barcode-wrapper" id="barcode-container">
+                        <!-- Bars injected via JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+        <section class="capabilities-section">
+         <div class="container">
+             <div class="section-header-flex">
+                 <div class="section-title-box">
+                     <h2><span>What</span> We Do</h2>
+                 </div>
+                 <div class="section-desc-box">
+                     <p>
+                        ASTRID combines multi-agent intelligence, heterogeneous sensing, physics-informed estimation, and adaptive control to deliver a smarter, real-time view of urban traffic.
+
+                     </p>
+                 </div>
+             </div>
+     
+             <div class="capabilities-container-box">
+     
+                 <!-- Item 1 -->
+                 <div class="capability-item">
+                     <div class="capability-icon">
+                         <img src="/frontend/images/multi_agent.png" class="capability-img" alt="Multi-Agent Icon">
+                     </div>
+                     <div class="capability-text">
+                         <span class="capability-num">01</span>
+                         <h3>Multi-Agent Traffic Intelligence</h3>
+                         <p>
+                             Coordinate intelligent agents across traffic signals and road
+                             approaches to reason about local congestion while responding
+                             to the behaviour of the wider traffic network.
+                         </p>
+                     </div>
+                 </div>
+     
+                 <!-- Item 2 -->
+                 <div class="capability-item">
+                     <div class="capability-icon">
+                         <img src="/frontend/images/hybrid_traffic_state_estimation.png" class="capability-img" alt="Hybrid Estimation Icon">
+                     </div>
+                     <div class="capability-text">
+                         <span class="capability-num">02</span>
+                         <h3>Hybrid Traffic State Estimation</h3>
+                         <p>
+                             Fuse roadside cameras, sparse GPS probe vehicles, simulation
+                             data, and historical observations to estimate traffic states
+                             that cannot be directly observed.
+                         </p>
+                     </div>
+                 </div>
+     
+                 <!-- Item 3 -->
+                 <div class="capability-item">
+                     <div class="capability-icon">
+                         <img src="/frontend/images/physics.png" class="capability-img" alt="Physics-Informed Icon">
+                     </div>
+                     <div class="capability-text">
+                         <span class="capability-num">03</span>
+                         <h3>Physics-Informed Prediction</h3>
+                         <p>
+                             Incorporate traffic-flow theory, conservation laws, LWR dynamics,
+                             shockwaves, and queue behaviour to make predictions consistent
+                             with how traffic actually evolves.
+                         </p>
+                     </div>
+                 </div>
+     
+                 <!-- Item 4 -->
+                 <div class="capability-item">
+                     <div class="capability-icon">
+                         <img src="/frontend/images/adaptive.png" class="capability-img" alt="Adaptive Signal Icon">
+                     </div>
+                     <div class="capability-text">
+                         <span class="capability-num">04</span>
+                         <h3>Adaptive Signal Control</h3>
+                         <p>
+                             Use reconstructed traffic conditions with intelligent control
+                             strategies such as Max-Pressure to adapt signal decisions,
+                             reduce queue growth, and improve junction performance.
+                         </p>
+                     </div>
+                 </div>
+     
+             </div>
+         </div>
+     </section>
+
+   
+     <section class="analytics-showcase-section">
+        <div class="analytics-bg-grid"></div>
+        <div class="analytics-bg-glow"></div>
+    
+        <div class="container">
+    
+            <!-- Section Header -->
+            <div class="section-header">
+                <span class="section-eyebrow">TRAFFIC INTELLIGENCE</span>
+    
+                <h2>POWERFUL ANALYTICS. <span>INSTANT CONTROL.</span></h2>
+    
+                <p>
+                    Complex threat data transformed into clear, actionable insights
+                </p>
+            </div>
+    
+    
+            <!-- Main Showcase -->
+            <div class="showcase-card unified-master-card">
+    
+                <!-- TOP ROW -->
+                <div class="showcase-row">
+    
+                    <!-- Dashboard -->
+                    <div class="showcase-image-box">
+                        <div class="image-top-bar">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+    
+                            <small>TRAFFIC STATE</small>
+                        </div>
+    
+                        <div class="image-inner">
+                            <div class="image-glow"></div>
+    
+                            <img
+                                src="/frontend/images/mockup1.png"
+                                alt="Traffic State Overview"
+                            />
+                        </div>
+                    </div>
+    
+    
+                    <!-- Content -->
+                    <div class="showcase-content-box">
+    
+                        <div class="content-number">01</div>
+    
+                        <span class="content-label">REAL-TIME VISIBILITY</span>
+    
+                        <h3>Traffic State Overview</h3>
+    
+                        <p>
+                            Bring traffic conditions from across the junction into a single, unified view. 
+                            ASTRID combines roadside camera observations, sparse GPS probe data, signal state, 
+                            and historical information to estimate the traffic state beyond what individual 
+                            sensors can directly observe.
+                        </p>
+    
+                        <ul class="feature-checklist">
+    
+                            <li>
+                                <span class="check-icon">✓</span>
+                                <span>Hidden queue estimation beyond camera visibility</span>
+                            </li>
+    
+                            <li>
+                                <span class="check-icon">✓</span>
+                                <span>Multi-source camera and GPS data fusion</span>
+                            </li>
+    
+                            <li>
+                                <span class="check-icon">✓</span>
+                                <span>Real-time traffic-state reconstruction</span>
+                            </li>
+    
+                        </ul>
+    
+                    </div>
+                </div>
+    
+    
+                <!-- CENTER INTELLIGENCE DIVIDER -->
+                <div class="radar-row-middle">
+    
+                    <div class="connector-line left"></div>
+    
+                    <div class="radar-box">
+    
+                        <div class="radar-scan"></div>
+    
+                        <div class="radar-ring ring-1"></div>
+                        <div class="radar-ring ring-2"></div>
+                        <div class="radar-ring ring-3"></div>
+    
+                        <div class="radar-cross horizontal"></div>
+                        <div class="radar-cross vertical"></div>
+    
+                        <div class="radar-dot"></div>
+    
+                    </div>
+    
+                    <div class="radar-caption">
+                        <span>ASTRID ENGINE</span>
+                        <small>CONTINUOUS TRAFFIC INTELLIGENCE</small>
+                    </div>
+    
+                    <div class="connector-line right"></div>
+    
+                </div>
+    
+    
+                <!-- BOTTOM ROW -->
+                <div class="showcase-row reverse-layout">
+    
+                    <!-- Content -->
+                    <div class="showcase-content-box">
+    
+                        <div class="content-number">02</div>
+    
+                        <span class="content-label">PREDICTIVE INTELLIGENCE</span>
+    
+                        <h3>Predictive Traffic Insights</h3>
+    
+                        <p>
+                            Move beyond what is visible now and understand how congestion is evolving. 
+                            ASTRID uses traffic-flow relationships, queue dynamics, and shockwave behaviour 
+                            to estimate how queues grow, dissipate, and propagate through the junction. 
+                            These insights provide an early view of emerging congestion before it becomes 
+                            fully visible to roadside sensors.
+                        </p>
+    
+                        <ul class="feature-checklist">
+    
+                            <li>
+                                <span class="check-icon">✓</span>
+                                <span>Queue growth and dissipation prediction</span>
+                            </li>
+    
+                            <li>
+                                <span class="check-icon">✓</span>
+                                <span>Shockwave and congestion propagation analysis</span>
+                            </li>
+    
+                            <li>
+                                <span class="check-icon">✓</span>
+                                <span>Early detection of emerging hidden congestion</span>
+                            </li>
+    
+                        </ul>
+    
+                    </div>
+    
+    
+                    <!-- Dashboard -->
+                    <div class="showcase-image-box">
+                        <div class="image-top-bar">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+    
+                            <small>PREDICTIVE ANALYTICS</small>
+                        </div>
+    
+                        <div class="image-inner">
+                            <div class="image-glow"></div>
+    
+                            <img
+                                src="/frontend/images/mockup2.png"
+                                alt="Predictive Insights Dashboard"
+                            />
+                        </div>
+                    </div>
+    
+                </div>
+    
+            </div>
+    
+        </div>
+    </section>
+  
+
+    <section class="deployment-section">
+
+        <div class="deployment-container">
+    
+            <!-- ==========================================
+                 TOP: THREE STEP PROCESS
+            =========================================== -->
+            <div class="deployment-steps">
+    
+                <div class="steps-heading">
+                    <h2>DEPLOYMENT IN THREE STEPS</h2>
+                    <p>Simple setup. Powerful traffic intelligence.</p>
+                </div>
+    
+    
+                <div class="steps-grid">
+    
+                    <!-- STEP 01 -->
+                    <article class="deployment-step">
+    
+                        <div class="step-number">01</div>
+    
+                        <h3>Connect &amp; Scan</h3>
+    
+                        <p>
+                            Integrate ASTRID with your existing traffic infrastructure.
+                            Connect roadside cameras, GPS probe data, signal states,
+                            and other available sources to begin reconstructing the
+                            traffic environment.
+                        </p>
+    
+                    </article>
+    
+    
+                    <!-- STEP 02 -->
+                    <article class="deployment-step">
+    
+                        <div class="step-number">02</div>
+    
+                        <h3>Monitor &amp; Analyze</h3>
+    
+                        <p>
+                            Continuously reconstruct traffic conditions across the
+                            junction. ASTRID fuses available observations with
+                            physics-informed models to identify queues, flow patterns,
+                            and emerging congestion.
+                        </p>
+    
+                    </article>
+    
+    
+                    <!-- STEP 03 -->
+                    <article class="deployment-step">
+    
+                        <div class="step-number">03</div>
+    
+                        <h3>Predict &amp; Adapt</h3>
+    
+                        <p>
+                            Anticipate how traffic will evolve and use those insights
+                            to support adaptive signal strategies. Respond to
+                            congestion before it becomes a larger operational problem.
+                        </p>
+    
+                    </article>
+    
+                </div>
+    
+            </div>
+    
+    
+            <!-- ==========================================
+            BOTTOM CTA
+            =========================================== -->
+            <div class="deployment-cta">
+            
+                <div class="cta-marquee-window">
+                    <div class="cta-marquee-track">
+            
+                        <span>ASTRID</span>
+                        <i>//</i>
+                        
+            
+                        <!-- Duplicate for seamless loop -->
+                        <span>ASTRID</span>
+                        <i>//</i>
+
+                        <!-- Duplicate for seamless loop -->
+                        <span>ASTRID</span>
+                        <i>//</i>
+
+                        <!-- Duplicate for seamless loop -->
+                        <span>ASTRID</span>
+                        <i>//</i>
+
+                        <!-- Duplicate for seamless loop -->
+                        <span>ASTRID</span>
+                        <i>//</i>
+
+                        <!-- Duplicate for seamless loop -->
+                        <span>ASTRID</span>
+                        <i>//</i>
+                        
+            
+                    </div>
+                </div>
+            
+                <div class="cta-actions">
+            
+                    <a href="#contact" class="cta-btn cta-primary">
+                        Request a Demo
+                        <span>↗</span>
+                    </a>
+            
+                    <a href="#contact" class="cta-btn cta-secondary">
+                        Contact Us
+                    </a>
+            
+                </div>
+            
+            </div>
+    
+        </div>
+    
+    </section>
+
+
+    <section class="faq-section">
+
+        <div class="faq-container">
+    
+            <!-- LEFT INTRO -->
+            <div class="faq-intro">
+    
+                <span class="faq-eyebrow">FREQUENTLY ASKED QUESTIONS</span>
+    
+                <h2>Frequently Asked Questions</h2>
+    
+                <p>
+                    Find answers to common questions about ASTRID's
+                    traffic intelligence capabilities.
+                </p>
+    
+            </div>
+    
+    
+            <!-- RIGHT FAQ -->
+            <div class="faq-list">
+    
+                <div class="faq-item active">
+    
+                    <button class="faq-question" type="button">
+                        <span>How does ASTRID integrate with existing traffic infrastructure?</span>
+                        <span class="faq-icon">⌄</span>
+                    </button>
+    
+                    <div class="faq-answer">
+                        <p>
+                            ASTRID is designed to work with existing roadside cameras,
+                            GPS probe data, signal states, and historical traffic data.
+                            It combines these sources to reconstruct a unified view
+                            of traffic conditions without requiring a complete
+                            replacement of existing infrastructure.
+                        </p>
+                    </div>
+    
+                </div>
+    
+    
+                <div class="faq-item">
+    
+                    <button class="faq-question" type="button">
+                        <span>What data does ASTRID require?</span>
+                        <span class="faq-icon">⌄</span>
+                    </button>
+    
+                    <div class="faq-answer">
+                        <p>
+                            ASTRID can combine camera observations, sparse GPS probe
+                            data, traffic signal information, and historical traffic
+                            patterns. The system is designed to work even when
+                            individual sources are incomplete or sparse.
+                        </p>
+                    </div>
+    
+                </div>
+    
+    
+                <div class="faq-item">
+    
+                    <button class="faq-question" type="button">
+                        <span>Can ASTRID estimate traffic that cameras cannot see?</span>
+                        <span class="faq-icon">⌄</span>
+                    </button>
+    
+                    <div class="faq-answer">
+                        <p>
+                            Yes. ASTRID reconstructs hidden traffic states using
+                            available observations together with traffic-flow
+                            relationships and learned models.
+                        </p>
+                    </div>
+    
+                </div>
+    
+    
+                <div class="faq-item">
+    
+                    <button class="faq-question" type="button">
+                        <span>How does ASTRID predict future congestion?</span>
+                        <span class="faq-icon">⌄</span>
+                    </button>
+    
+                    <div class="faq-answer">
+                        <p>
+                            ASTRID uses queue dynamics, traffic-flow relationships,
+                            and shockwave behaviour to estimate how congestion can
+                            grow, dissipate, and propagate through the junction.
+                        </p>
+                    </div>
+    
+                </div>
+    
+    
+                <div class="faq-item">
+    
+                    <button class="faq-question" type="button">
+                        <span>Can ASTRID support adaptive signal control?</span>
+                        <span class="faq-icon">⌄</span>
+                    </button>
+    
+                    <div class="faq-answer">
+                        <p>
+                            Yes. The reconstructed and predicted traffic state can
+                            provide the information required by intelligent signal
+                            control strategies to respond to changing junction
+                            conditions.
+                        </p>
+                    </div>
+    
+                </div>
+    
+    
+                <div class="faq-item">
+    
+                    <button class="faq-question" type="button">
+                        <span>Does ASTRID require dense sensor coverage?</span>
+                        <span class="faq-icon">⌄</span>
+                    </button>
+    
+                    <div class="faq-answer">
+                        <p>
+                            No. One of ASTRID's core capabilities is extracting useful
+                            traffic intelligence even when observations are sparse,
+                            incomplete, or geographically limited.
+                        </p>
+                    </div>
+    
+                </div>
+    
+            </div>
+    
+        </div>
+    
+    </section>
+
+
+
+    <section class="astrid-bottom-section">
+
+    <!-- ==========================================
+         LARGE CTA
+    =========================================== -->
+    <div class="astrid-cta">
+
+        <div class="astrid-cta-title">
+            <div class="cta-marquee-wrap">
+
+                <div class="cta-marquee-track">
+
+                    <span>BUILD SMATER</span>
+                    <i>//</i>
+                    <span>CONTROL BETTER</span>
+                    <i>//</i>
+                    <span>BUILD SMARTER </span>
+                    <i>//</i>
+                    <span>CONTROL BETTER</span>
+
+                </div>
+
+            </div>
+        </div>
+
+
+        <form class="astrid-subscribe">
+
+            <label for="astrid-email">
+                Stay connected
+            </label>
+
+            <div class="subscribe-row">
+
+                <input
+                    id="astrid-email"
+                    type="email"
+                    placeholder="Enter your email"
+                    autocomplete="email"
+                />
+
+                <button type="submit">
+                    Subscribe
+                    <span>↗</span>
+                </button>
+
+            </div>
+
+        </form>
+
+
+        <!-- SIGNAL GRAPHIC -->
+        <div class="signal-graphic">
+
+            <div class="signal-bars">
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+
+        </div>
+
+
+        <!-- ==========================================
+             FOOTER
+        =========================================== -->
+        <footer class="astrid-footer">
+
+            <div class="footer-brand">
+
+                <a href="#" class="astrid-logo">
+
+                    <span class="astrid-logo">
+                        <img src="/frontend/images/Astrid.png">
+                    <span>
+                        Astrid
+                    
+                </a>
+
+                <p>
+                    Physics-informed traffic intelligence for
+                    smarter, more adaptive junctions.
+                </p>
+
+            </div>
+
+
+            <div class="footer-column">
+
+                <h4>PRODUCT</h4>
+
+                <a href="#overview">Overview</a>
+                <a href="#analytics">Analytics</a>
+                <a href="#prediction">Prediction</a>
+                <a href="#control">Adaptive Control</a>
+
+            </div>
+
+
+            <div class="footer-column">
+
+                <h4>SOLUTIONS</h4>
+
+                <a href="#">Traffic Management</a>
+                <a href="#">Smart Junctions</a>
+                <a href="#">Urban Mobility</a>
+                <a href="#">Infrastructure</a>
+
+            </div>
+
+
+            <div class="footer-column">
+
+                <h4>RESOURCES</h4>
+
+                <a href="#">Documentation</a>
+                <a href="#">Research</a>
+                <a href="#">Case Studies</a>
+                <a href="#">FAQ</a>
+
+            </div>
+
+
+            <div class="footer-column">
+
+                <h4>COMPANY</h4>
+
+                <a href="#">About</a>
+                <a href="#">Contact</a>
+                <a href="#">Careers</a>
+
+            </div>
+
+        </footer>
+
+
+        <!-- FOOTER BOTTOM -->
+        <div class="footer-bottom">
+
+            <div>
+                © 2026 ASTRID. All rights reserved.
+            </div>
+
+            <div class="footer-legal">
+
+                <a href="#">Privacy Policy</a>
+
+                <span></span>
+
+                <a href="#">Terms of Service</a>
+
+            </div>
+
+            <div class="footer-socials">
+
+                <a href="#" aria-label="LinkedIn">in</a>
+                <a href="#" aria-label="X">X</a>
+                <a href="#" aria-label="GitHub">GH</a>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+        
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
