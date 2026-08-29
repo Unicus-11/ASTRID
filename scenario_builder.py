@@ -1,55 +1,74 @@
-"""  
-
-
-scenario.json
-     │
-     ├── traffic amount
-     ├── approach distribution
-     ├── vehicle distribution
-     ├── movement distribution
-     ├── departure pattern
-     ├── GPS penetration
-     └── CCTV detection
-             │
-             ▼
-     scenario_builder.py
-             │
-       ┌─────┴─────┐
-       ▼           ▼
-  scenario       scenario
-  sq.flow.xml    sq.vtype.xml
-       │           │
-       └─────┬─────┘
-             ▼
-         duarouter
-             ▼
-     scenario/sq.rou.xml
-     
-     
-basically 
-
-scenario.json
-     ↓
-defines WHAT traffic we want
-     ↓
-scenario_builder.py
-     ↓
-creates sq.flow.xml + sq.vtype.xml
-     ↓
-duarouter
-     ↓
-sq.rou.xml
-   
-   
-   
-   Corrected MOVEMENTS to match sensor_simulator.py.
-Largest-remainder allocation so the generated flow counts sum exactly to the intended total.
-demand now affects vehicle volume using:
-low → 0.75
-medium → 1.00
-high → 1.25   
-     
 """
+============================================================
+ASTRID SCENARIO BUILDER
+============================================================
+
+Purpose
+-------
+Convert each scenario.json into the SUMO files required
+for that scenario.
+
+SOURCE OF TRUTH
+---------------
+
+scenario.json defines:
+
+    demand
+    demand_rate
+    total_vehicles
+    vehicle_distribution
+    approach_distribution
+    movement_distribution
+    gps_penetration
+    cctv_detection
+
+The builder does NOT invent or recalculate demand.
+
+DATA FLOW
+---------
+
+create_scenarios.py
+        |
+        v
+scenario.json
+        |
+        v
+scenario_builder.py
+        |
+        +--> sq.vtype.xml
+        |
+        +--> sq.flow.xml
+        |
+        v
+    duarouter
+        |
+        v
+    sq.rou.xml
+        |
+        v
+       SUMO
+
+
+IMPORTANT
+---------
+
+There is only ONE copy of this file.
+
+There is only ONE copy of:
+
+    sensor_simulator.py
+    state_extractor.py
+
+They are reused for every scenario.
+
+Example:
+
+    scenario_001 -> SUMO -> dataset_001
+    scenario_002 -> SUMO -> dataset_002
+    ...
+    scenario_200 -> SUMO -> dataset_200
+"""
+
 import json
 import subprocess
 from pathlib import Path
@@ -61,7 +80,6 @@ import xml.etree.ElementTree as ET
 # ============================================================
 
 PROJECT_DIR = Path(__file__).resolve().parent
-
 
 SCENARIOS_DIR = PROJECT_DIR / "scenarios"
 
@@ -79,21 +97,25 @@ ORIGINAL_NET = SUMO_DIR / "sq.net.xml"
 # ============================================================
 
 MOVEMENTS = {
+
     "north": {
         "left": ("4i", "1o"),
         "straight": ("4i", "3o"),
         "right": ("4i", "2o"),
     },
+
     "south": {
         "left": ("3i", "2o"),
         "straight": ("3i", "4o"),
         "right": ("3i", "1o"),
     },
+
     "east": {
         "left": ("2i", "4o"),
         "straight": ("2i", "1o"),
         "right": ("2i", "3o"),
     },
+
     "west": {
         "left": ("1i", "3o"),
         "straight": ("1i", "2o"),
@@ -101,33 +123,6 @@ MOVEMENTS = {
     },
 }
 
-
-# ============================================================
-# DEMAND PROFILES
-# ============================================================
-
-
-DEMAND_PROFILES = {
-    "low": {
-        "base": 700,
-        "peak": 1100,
-    },
-
-    "medium": {
-        "base": 1000,
-        "peak": 1800,
-    },
-
-    "high": {
-        "base": 1400,
-        "peak": 2400,
-    },
-
-    "very_high": {
-        "base": 1800,
-        "peak": 3200,
-    },
-}
 
 # ============================================================
 # VEHICLE TYPES
@@ -173,44 +168,18 @@ VEHICLE_TYPES = {
 }
 
 
-def calculate_total_vehicles(
-    scenario: dict,
-) -> int:
-    """
-    Convert the scenario's demand level into an exact
-    number of vehicles for the simulation duration.
-    """
-
-    demand_name = scenario["demand"]
-
-    if demand_name not in DEMAND_PROFILES:
-        raise ValueError(
-            f"Unknown demand level: {demand_name}. "
-            f"Expected one of: {sorted(DEMAND_PROFILES)}"
-        )
-
-    demand_rate = DEMAND_PROFILES[demand_name]
-
-    simulation_end = int(
-        scenario["simulation_end"]
-    )
-
-    total = (
-        demand_rate
-        * simulation_end
-        / 3600
-    )
-
-    return round(total)
-
-
 # ============================================================
 # LOAD SCENARIO
 # ============================================================
 
 def load_scenario(path: Path) -> dict:
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(
+        path,
+        "r",
+        encoding="utf-8",
+    ) as f:
+
         return json.load(f)
 
 
@@ -223,16 +192,28 @@ def validate_probability_distribution(
     name: str,
     expected_keys=None,
 ):
+
+    if not isinstance(distribution, dict):
+        raise ValueError(
+            f"{name} must be an object."
+        )
+
     if not distribution:
-        raise ValueError(f"{name} cannot be empty.")
+        raise ValueError(
+            f"{name} cannot be empty."
+        )
 
     if expected_keys is not None:
 
-        missing = set(expected_keys) - set(distribution)
+        missing = (
+            set(expected_keys)
+            - set(distribution)
+        )
 
         if missing:
             raise ValueError(
-                f"{name} missing keys: {sorted(missing)}"
+                f"{name} missing keys: "
+                f"{sorted(missing)}"
             )
 
     for key, value in distribution.items():
@@ -241,29 +222,43 @@ def validate_probability_distribution(
 
         if value < 0:
             raise ValueError(
-                f"{name}[{key}] cannot be negative."
+                f"{name}[{key}] "
+                f"cannot be negative."
             )
 
-    total = sum(float(v) for v in distribution.values())
+    total = sum(
+        float(value)
+        for value in distribution.values()
+    )
 
-    if abs(total - 1.0) > 1e-9:
+    if abs(total - 1.0) > 1e-5:
         raise ValueError(
             f"{name} must sum to 1.0. "
             f"Current sum = {total}"
         )
 
 
-def validate_scenario(scenario: dict):
+def validate_scenario(
+    scenario: dict,
+):
+
+    # --------------------------------------------------------
+    # Required fields
+    # --------------------------------------------------------
 
     required = {
         "name",
         "seed",
         "simulation_end",
+
         "demand",
+        "demand_rate",
         "total_vehicles",
+
         "vehicle_distribution",
         "approach_distribution",
         "movement_distribution",
+
         "gps_penetration",
         "cctv_detection",
     }
@@ -276,20 +271,69 @@ def validate_scenario(scenario: dict):
             + ", ".join(sorted(missing))
         )
 
+    # --------------------------------------------------------
+    # Basic values
+    # --------------------------------------------------------
+
+    if not isinstance(scenario["name"], str):
+        raise ValueError(
+            "name must be a string."
+        )
+
     if int(scenario["seed"]) < 0:
-        raise ValueError("seed must be >= 0.")
+        raise ValueError(
+            "seed must be >= 0."
+        )
 
     if int(scenario["simulation_end"]) <= 0:
-        raise ValueError("simulation_end must be > 0.")
-    
-    if scenario["demand"] not in DEMAND_PROFILES:
         raise ValueError(
-            f"Unknown demand level: {scenario['demand']}. "
-            f"Expected one of: {sorted(DEMAND_PROFILES)}"
+            "simulation_end must be > 0."
+        )
+
+    if float(scenario["demand_rate"]) <= 0:
+        raise ValueError(
+            "demand_rate must be > 0."
         )
 
     if int(scenario["total_vehicles"]) <= 0:
-        raise ValueError("total_vehicles must be > 0.")
+        raise ValueError(
+            "total_vehicles must be > 0."
+        )
+
+    # --------------------------------------------------------
+    # Demand
+    # --------------------------------------------------------
+
+    if not isinstance(
+        scenario["demand"],
+        str,
+    ):
+        raise ValueError(
+            "demand must be a string."
+        )
+
+    # --------------------------------------------------------
+    # Demand consistency
+    # --------------------------------------------------------
+
+    expected_total = round(
+        float(scenario["demand_rate"])
+        * int(scenario["simulation_end"])
+        / 3600.0
+    )
+
+    if int(scenario["total_vehicles"]) != expected_total:
+        raise ValueError(
+            "Scenario demand is inconsistent.\n"
+            f"demand_rate   = {scenario['demand_rate']}\n"
+            f"simulation_end = {scenario['simulation_end']}\n"
+            f"total_vehicles = {scenario['total_vehicles']}\n"
+            f"expected_total = {expected_total}"
+        )
+
+    # --------------------------------------------------------
+    # Vehicle distribution
+    # --------------------------------------------------------
 
     validate_probability_distribution(
         scenario["vehicle_distribution"],
@@ -297,20 +341,41 @@ def validate_scenario(scenario: dict):
         VEHICLE_TYPES.keys(),
     )
 
+    # --------------------------------------------------------
+    # Approach distribution
+    # --------------------------------------------------------
+
     validate_probability_distribution(
         scenario["approach_distribution"],
         "approach_distribution",
         MOVEMENTS.keys(),
     )
 
+    # --------------------------------------------------------
+    # Movement distribution
+    # --------------------------------------------------------
+
     validate_probability_distribution(
         scenario["movement_distribution"],
         "movement_distribution",
-        ["left", "straight", "right"],
+        [
+            "left",
+            "straight",
+            "right",
+        ],
     )
 
-    gps = float(scenario["gps_penetration"])
-    cctv = float(scenario["cctv_detection"])
+    # --------------------------------------------------------
+    # Sensors
+    # --------------------------------------------------------
+
+    gps = float(
+        scenario["gps_penetration"]
+    )
+
+    cctv = float(
+        scenario["cctv_detection"]
+    )
 
     if not 0 <= gps <= 1:
         raise ValueError(
@@ -321,48 +386,70 @@ def validate_scenario(scenario: dict):
         raise ValueError(
             "cctv_detection must be between 0 and 1."
         )
-
-
+        
+        
 # ============================================================
 # EXACT INTEGER ALLOCATION
 # ============================================================
 
-def allocate_counts(total: int, distribution: dict) -> dict:
+def allocate_counts(
+    total: int,
+    distribution: dict,
+) -> dict:
     """
-    Convert probabilities into integer counts whose sum is
-    exactly `total`.
+    Convert probabilities into integer counts.
 
-    Uses the largest-remainder method.
+    The final counts always sum exactly to `total`.
     """
 
     raw = {
-        key: total * float(probability)
-        for key, probability in distribution.items()
+
+        key:
+        total * float(probability)
+
+        for key, probability
+        in distribution.items()
     }
 
     counts = {
-        key: int(value)
-        for key, value in raw.items()
+
+        key:
+        int(value)
+
+        for key, value
+        in raw.items()
     }
 
-    remaining = total - sum(counts.values())
+    remaining = (
+        total
+        - sum(counts.values())
+    )
 
     remainders = sorted(
+
         (
-            (raw[key] - counts[key], key)
+            (
+                raw[key]
+                - counts[key],
+
+                key,
+            )
+
             for key in raw
         ),
+
         reverse=True,
     )
 
     for _, key in remainders[:remaining]:
+
         counts[key] += 1
 
     return counts
 
 
 # ============================================================
-# CREATE VTYPE XML
+# CREATE VEHICLE TYPE XML
 # ============================================================
 
 def create_vtype_xml(
@@ -370,22 +457,40 @@ def create_vtype_xml(
     output_file: Path,
 ):
 
-    distribution = scenario["vehicle_distribution"]
+    distribution = scenario[
+        "vehicle_distribution"
+    ]
 
-    root = ET.Element("routes")
+    root = ET.Element(
+        "routes"
+    )
 
     type_distribution = ET.SubElement(
         root,
         "vTypeDistribution",
-        {"id": "typedist1"},
+        {
+            "id": "typedist1"
+        },
     )
 
-    for vehicle_type, probability in distribution.items():
+    for (
+        vehicle_type,
+        probability
+    ) in distribution.items():
 
-        attributes = VEHICLE_TYPES[vehicle_type].copy()
+        attributes = (
+            VEHICLE_TYPES[
+                vehicle_type
+            ].copy()
+        )
 
-        attributes["id"] = vehicle_type
-        attributes["probability"] = str(probability)
+        attributes["id"] = (
+            vehicle_type
+        )
+
+        attributes["probability"] = (
+            str(probability)
+        )
 
         vtype = ET.SubElement(
             type_distribution,
@@ -402,16 +507,20 @@ def create_vtype_xml(
             },
         )
 
-    tree = ET.ElementTree(root)
+    tree = ET.ElementTree(
+        root
+    )
 
-    ET.indent(tree, space="    ")
+    ET.indent(
+        tree,
+        space="    ",
+    )
 
     tree.write(
         output_file,
         encoding="UTF-8",
         xml_declaration=True,
     )
-
 
 # ============================================================
 # CREATE FLOW XML
@@ -421,16 +530,29 @@ def create_flow_xml(
     scenario: dict,
     output_file: Path,
 ):
+    """
+    Create the SUMO flow file for one scenario.
+
+    total_vehicles is taken directly from scenario.json.
+
+    demand_rate is metadata describing traffic demand
+    in vehicles/hour. It is NOT used to recalculate
+    total_vehicles here.
+    """
 
     root = ET.Element("routes")
 
     simulation_end = int(
         scenario["simulation_end"]
     )
-    
-    total_vehicles = calculate_total_vehicles(
-    scenario
-)
+
+    total_vehicles = int(
+        scenario["total_vehicles"]
+    )
+
+    # --------------------------------------------------------
+    # Allocate vehicles to approaches
+    # --------------------------------------------------------
 
     approach_counts = allocate_counts(
         total_vehicles,
@@ -439,9 +561,28 @@ def create_flow_xml(
 
     flow_id = 0
 
-    for direction in MOVEMENTS:
+    # --------------------------------------------------------
+    # Create flows for each approach
+    # --------------------------------------------------------
 
-        approach_total = approach_counts[direction]
+    for direction in (
+        "north",
+        "south",
+        "east",
+        "west",
+    ):
+
+        approach_total = approach_counts.get(
+            direction,
+            0,
+        )
+
+        if approach_total <= 0:
+            continue
+
+        # ----------------------------------------------------
+        # Allocate approach vehicles to movements
+        # ----------------------------------------------------
 
         movement_counts = allocate_counts(
             approach_total,
@@ -454,41 +595,89 @@ def create_flow_xml(
             "right",
         ):
 
-            number = movement_counts[movement]
+            number = movement_counts.get(
+                movement,
+                0,
+            )
 
             if number <= 0:
                 continue
 
-            from_edge, to_edge = (
-                MOVEMENTS[direction][movement]
-            )
+            # ------------------------------------------------
+            # Get SUMO origin/destination edges
+            # ------------------------------------------------
+
+            try:
+
+                from_edge, to_edge = MOVEMENTS[
+                    direction
+                ][movement]
+
+            except KeyError as exc:
+
+                raise ValueError(
+                    f"Invalid movement configuration: "
+                    f"{direction} -> {movement}"
+                ) from exc
+
+            # ------------------------------------------------
+            # Create SUMO flow
+            # ------------------------------------------------
 
             ET.SubElement(
                 root,
                 "flow",
                 {
-                    "id": f"flow_{flow_id}",
-                    "from": from_edge,
-                    "to": to_edge,
-                    "number": str(number),
-                    "begin": "0",
-                    "end": str(simulation_end),
-                    "type": "typedist1",
-                    "departLane": "free",
-                    "departSpeed": "random",
+                    "id":
+                        f"flow_{flow_id}",
+
+                    "from":
+                        from_edge,
+
+                    "to":
+                        to_edge,
+
+                    "number":
+                        str(number),
+
+                    "begin":
+                        "0",
+
+                    "end":
+                        str(simulation_end),
+
+                    "type":
+                        "typedist1",
+
+                    "departLane":
+                        "free",
+
+                    "departSpeed":
+                        "random",
                 },
             )
 
             flow_id += 1
 
+    # --------------------------------------------------------
+    # Write XML
+    # --------------------------------------------------------
+
     tree = ET.ElementTree(root)
 
-    ET.indent(tree, space="    ")
+    ET.indent(
+        tree,
+        space="    ",
+    )
 
     tree.write(
         output_file,
         encoding="UTF-8",
         xml_declaration=True,
+    )
+
+    print(
+        f"Created flow file: {output_file}"
     )
 
 
@@ -501,9 +690,25 @@ def create_route_file(
     seed: int,
 ):
 
-    flow_file = scenario_dir / "sq.flow.xml"
-    vtype_file = scenario_dir / "sq.vtype.xml"
-    route_file = scenario_dir / "sq.rou.xml"
+    flow_file = (
+        scenario_dir
+        / "sq.flow.xml"
+    )
+
+    vtype_file = (
+        scenario_dir
+        / "sq.vtype.xml"
+    )
+
+    route_file = (
+        scenario_dir
+        / "sq.rou.xml"
+    )
+
+    scenario = load_scenario(
+        scenario_dir
+        / "scenario.json"
+    )
 
     command = [
         "duarouter",
@@ -528,10 +733,7 @@ def create_route_file(
 
         "--end",
         str(
-            # Read from scenario JSON
-            load_scenario(
-                scenario_dir / "scenario.json"
-            )["simulation_end"]
+            scenario["simulation_end"]
         ),
     ]
 
@@ -542,7 +744,9 @@ def create_route_file(
         check=True,
     )
 
-    print(f"Created: {route_file}")
+    print(
+        f"Created route file: {route_file}"
+    )
 
 
 # ============================================================
@@ -553,40 +757,83 @@ def build_scenario(
     scenario_dir: Path,
 ):
 
-    scenario_file = scenario_dir / "scenario.json"
+    scenario_file = (
+        scenario_dir
+        / "scenario.json"
+    )
 
-    scenario = load_scenario(scenario_file)
+    scenario = load_scenario(
+        scenario_file
+    )
 
-    validate_scenario(scenario)
+    validate_scenario(
+        scenario
+    )
 
     scenario_name = scenario["name"]
 
+    # --------------------------------------------------------
+    # Check directory name
+    # --------------------------------------------------------
+
     if scenario_name != scenario_dir.name:
+
         raise ValueError(
-            f"Scenario directory/name mismatch:\n"
+            "Scenario directory/name mismatch:\n"
             f"Directory = {scenario_dir.name}\n"
-            f"JSON name  = {scenario_name}"
+            f"JSON name = {scenario_name}"
         )
 
-    print()
-    print("=" * 70)
-    print(f"BUILDING SCENARIO: {scenario_name}")
-    print("=" * 70)
-
-    print(
-        f"Vehicles: {scenario['total_vehicles']}"
-    )
-
-    print(
-        f"Simulation: {scenario['simulation_end']} s"
-    )
-
-    print(
-        f"Seed: {scenario['seed']}"
+    total_vehicles = int(
+        scenario["total_vehicles"]
     )
 
     # --------------------------------------------------------
-    # Vehicle types
+    # Display scenario information
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print(
+        f"BUILDING SCENARIO: {scenario_name}"
+    )
+    print("=" * 70)
+
+    print(
+        f"Demand class:  {scenario['demand']}"
+    )
+
+    print(
+        f"Demand rate:   "
+        f"{scenario['demand_rate']} veh/h"
+    )
+
+    print(
+        f"Total vehicles: {total_vehicles}"
+    )
+
+    print(
+        f"Simulation:    "
+        f"{scenario['simulation_end']} s"
+    )
+
+    print(
+        f"GPS:            "
+        f"{scenario['gps_penetration']:.2%}"
+    )
+
+    print(
+        f"CCTV:           "
+        f"{scenario['cctv_detection']:.2%}"
+    )
+
+    print(
+        f"Seed:            "
+        f"{scenario['seed']}"
+    )
+
+    # --------------------------------------------------------
+    # Create vehicle types
     # --------------------------------------------------------
 
     create_vtype_xml(
@@ -595,7 +842,7 @@ def build_scenario(
     )
 
     # --------------------------------------------------------
-    # Traffic flows
+    # Create traffic flows
     # --------------------------------------------------------
 
     create_flow_xml(
@@ -604,7 +851,7 @@ def build_scenario(
     )
 
     # --------------------------------------------------------
-    # Routes
+    # Create routes
     # --------------------------------------------------------
 
     create_route_file(
@@ -613,7 +860,8 @@ def build_scenario(
     )
 
     print(
-        f"Scenario '{scenario_name}' built successfully."
+        f"Scenario '{scenario_name}' "
+        f"built successfully."
     )
 
 
@@ -624,8 +872,9 @@ def build_scenario(
 def main():
 
     if not SCENARIOS_DIR.exists():
+
         raise FileNotFoundError(
-            f"Scenario directory not found:\n"
+            "Scenario directory not found:\n"
             f"{SCENARIOS_DIR}"
         )
 
@@ -634,17 +883,38 @@ def main():
         for path in SCENARIOS_DIR.iterdir()
         if (
             path.is_dir()
-            and (path / "scenario.json").exists()
+            and
+            (path / "scenario.json").exists()
         )
     )
 
     if not scenario_dirs:
+
         raise RuntimeError(
             "No scenario.json files found."
         )
 
-    for scenario_dir in scenario_dirs:
-        build_scenario(scenario_dir)
+    print(
+        f"Found {len(scenario_dirs)} scenarios."
+    )
+
+    # --------------------------------------------------------
+    # Build every scenario
+    # --------------------------------------------------------
+
+    for index, scenario_dir in enumerate(
+        scenario_dirs,
+        start=1,
+    ):
+
+        print(
+            f"\n[{index}/{len(scenario_dirs)}] "
+            f"{scenario_dir.name}"
+        )
+
+        build_scenario(
+            scenario_dir
+        )
 
     print()
     print("=" * 70)
@@ -652,5 +922,10 @@ def main():
     print("=" * 70)
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
+
     main()

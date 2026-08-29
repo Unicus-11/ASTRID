@@ -1,5 +1,8 @@
 """
-Run/read the simulation state and produce synthetic sensor observations. For example:
+Run/read the SUMO simulation state and produce synthetic
+sensor observations.
+
+For example:
 
 Step 0
 ├── Ground truth vehicles
@@ -15,7 +18,10 @@ Step 1
 ├── Traffic state
 └── Signal state
 
-This doesn't create database. The structure is :
+This file does NOT create a database.
+
+Architecture
+------------
 
 SUMO
  ↓
@@ -29,22 +35,59 @@ state_extractor.py
  ↓
 sensor_dataset.json
 
-our incoming roads are about 484.9 m long, so each camera observes only the final 150 m approaching the junction.
 
-"""
-"""
-sensor_simulator.py
+Scenario architecture
+---------------------
 
-Synthetic GPS/CCTV sensor layer for ASTRID.
+scenario_001/scenario.json
+        ↓
+SensorSimulator
+        ↓
+SUMO observations
 
-IMPORTANT:
-    This module does NOT create SUMO vehicles.
+scenario_002/scenario.json
+        ↓
+SensorSimulator
+        ↓
+SUMO observations
+
+...
+
+scenario_200/scenario.json
+        ↓
+SensorSimulator
+        ↓
+SUMO observations
+
+
+IMPORTANT
+---------
+
+There is only ONE copy of sensor_simulator.py.
+
+The same code is reused for every scenario.
+
+The scenario-specific values come from scenario.json:
+
+    gps_penetration
+    cctv_detection
+    seed
+    simulation_end
+
+This module does NOT create vehicles.
 
 SUMO creates the traffic population.
 
 This module only observes those vehicles and applies
-the sensor configuration supplied by the selected scenario.
+the sensor configuration belonging to the current scenario.
+
+Incoming roads are approximately 484.9 m long.
+
+Each CCTV camera observes only the final 150 m
+approaching the junction.
 """
+
+
 from dataclasses import dataclass
 from typing import Set, List
 import hashlib
@@ -68,9 +111,13 @@ INCOMING_EDGES = {
 }
 
 CAMERA_APPROACHES = {
+
     "north_camera": "4i",
+
     "south_camera": "3i",
+
     "east_camera": "2i",
+
     "west_camera": "1i",
 }
 
@@ -81,11 +128,20 @@ CAMERA_APPROACHES = {
 
 @dataclass(frozen=True)
 class SensorConfig:
+    """
+    Sensor configuration for ONE scenario.
+
+    These values come directly from scenario.json.
+    """
 
     scenario_name: str
+
     seed: int
+
     gps_penetration: float
+
     cctv_detection: float
+
     simulation_end: int
 
 
@@ -94,6 +150,19 @@ class SensorConfig:
 # ============================================================
 
 class SensorSimulator:
+    """
+    Observe vehicles currently existing in SUMO.
+
+    This class does not create or control vehicles.
+
+    SUMO is the source of ground-truth traffic.
+
+    SensorSimulator creates:
+
+        ground_truth
+        GPS observations
+        CCTV observations
+    """
 
     def __init__(
         self,
@@ -102,7 +171,13 @@ class SensorSimulator:
 
         self.config = config
 
-        # Persistent GPS assignment.
+        # ----------------------------------------------------
+        # Vehicles permanently selected as GPS probes.
+        #
+        # Once a vehicle is selected, it remains a GPS probe
+        # for the rest of its lifetime.
+        # ----------------------------------------------------
+
         self.gps_probe_vehicles: Set[str] = set()
 
         self._validate_config()
@@ -113,24 +188,44 @@ class SensorSimulator:
 
     def _validate_config(self):
 
-        if not 0.0 <= self.config.gps_penetration <= 1.0:
+        if not (
+            0.0
+            <= self.config.gps_penetration
+            <= 1.0
+        ):
+
             raise ValueError(
-                "gps_penetration must be between 0 and 1."
+                "gps_penetration must be "
+                "between 0 and 1."
             )
 
-        if not 0.0 <= self.config.cctv_detection <= 1.0:
+        if not (
+            0.0
+            <= self.config.cctv_detection
+            <= 1.0
+        ):
+
             raise ValueError(
-                "cctv_detection must be between 0 and 1."
+                "cctv_detection must be "
+                "between 0 and 1."
             )
 
         if self.config.simulation_end <= 0:
+
             raise ValueError(
                 "simulation_end must be > 0."
             )
 
         if self.config.seed < 0:
+
             raise ValueError(
                 "seed must be >= 0."
+            )
+
+        if not self.config.scenario_name:
+
+            raise ValueError(
+                "scenario_name cannot be empty."
             )
 
     # ========================================================
@@ -142,6 +237,19 @@ class SensorSimulator:
         vehicle_id: str,
         sensor_name: str,
     ) -> float:
+        """
+        Produce a deterministic pseudo-random value.
+
+        The value depends on:
+
+            scenario seed
+            scenario name
+            sensor name
+            vehicle ID
+
+        Therefore the same scenario produces reproducible
+        sensor assignments.
+        """
 
         key = (
             f"{self.config.seed}:"
@@ -169,8 +277,21 @@ class SensorSimulator:
         self,
         vehicle_id: str,
     ) -> bool:
+        """
+        Determine whether this vehicle is a GPS probe.
+
+        GPS penetration is applied once per vehicle.
+
+        Example:
+
+            gps_penetration = 0.30
+
+        approximately 30% of vehicles will become
+        persistent GPS probes.
+        """
 
         if vehicle_id in self.gps_probe_vehicles:
+
             return True
 
         value = self._random_value(
@@ -178,7 +299,11 @@ class SensorSimulator:
             "gps",
         )
 
-        if value < self.config.gps_penetration:
+        if (
+            value
+            <
+            self.config.gps_penetration
+        ):
 
             self.gps_probe_vehicles.add(
                 vehicle_id
@@ -197,47 +322,99 @@ class SensorSimulator:
         route: List[str],
         route_index: int,
     ) -> str:
+        """
+        Determine vehicle movement from its SUMO route.
+
+        Example:
+
+            4i -> 3o
+
+        means:
+
+            north -> south
+
+        which is a straight movement.
+        """
 
         if not route:
+
             return "unknown"
 
         if route_index < 0:
+
             return "unknown"
 
         if route_index >= len(route):
+
             return "unknown"
 
-        current_edge = route[route_index]
+        current_edge = route[
+            route_index
+        ]
 
         if current_edge not in INCOMING_EDGES:
+
             return "unknown"
 
-        if route_index + 1 >= len(route):
+        if (
+            route_index + 1
+            >= len(route)
+        ):
+
             return "unknown"
 
-        next_edge = route[route_index + 1]
+        next_edge = route[
+            route_index + 1
+        ]
 
         movement_map = {
 
-            ("4i", "3o"): "north_to_south",
-            ("4i", "2o"): "north_to_east",
-            ("4i", "1o"): "north_to_west",
+            # North
+            ("4i", "3o"):
+                "north_to_south",
 
-            ("3i", "4o"): "south_to_north",
-            ("3i", "2o"): "south_to_east",
-            ("3i", "1o"): "south_to_west",
+            ("4i", "2o"):
+                "north_to_east",
 
-            ("2i", "4o"): "east_to_north",
-            ("2i", "3o"): "east_to_south",
-            ("2i", "1o"): "east_to_west",
+            ("4i", "1o"):
+                "north_to_west",
 
-            ("1i", "4o"): "west_to_north",
-            ("1i", "3o"): "west_to_south",
-            ("1i", "2o"): "west_to_east",
+            # South
+            ("3i", "4o"):
+                "south_to_north",
+
+            ("3i", "2o"):
+                "south_to_east",
+
+            ("3i", "1o"):
+                "south_to_west",
+
+            # East
+            ("2i", "4o"):
+                "east_to_north",
+
+            ("2i", "3o"):
+                "east_to_south",
+
+            ("2i", "1o"):
+                "east_to_west",
+
+            # West
+            ("1i", "4o"):
+                "west_to_north",
+
+            ("1i", "3o"):
+                "west_to_south",
+
+            ("1i", "2o"):
+                "west_to_east",
         }
 
         return movement_map.get(
-            (current_edge, next_edge),
+            (
+                current_edge,
+                next_edge,
+            ),
             "unknown",
         )
 
@@ -250,12 +427,25 @@ class SensorSimulator:
         vehicle_id: str,
         camera_edge: str,
     ) -> bool:
+        """
+        Return True when a vehicle is inside the final
+        CAMERA_LENGTH metres of an incoming road.
+
+        Incoming road length is approximately 484.9 m.
+
+        Therefore, with CAMERA_LENGTH = 150 m:
+
+            camera region ≈ 334.9 m -> 484.9 m
+
+        measured along the lane toward the junction.
+        """
 
         edge_id = traci.vehicle.getRoadID(
             vehicle_id
         )
 
         if edge_id != camera_edge:
+
             return False
 
         lane_id = traci.vehicle.getLaneID(
@@ -263,6 +453,7 @@ class SensorSimulator:
         )
 
         if not lane_id:
+
             return False
 
         lane_length = traci.lane.getLength(
@@ -275,11 +466,12 @@ class SensorSimulator:
 
         return (
             position
-            >= lane_length - CAMERA_LENGTH
+            >=
+            lane_length - CAMERA_LENGTH
         )
 
     # ========================================================
-    # GPS
+    # GPS OBSERVATIONS
     # ========================================================
 
     def get_gps_observations(
@@ -292,7 +484,10 @@ class SensorSimulator:
 
         for vehicle_id in vehicle_ids:
 
-            if not self.assign_gps_probe(vehicle_id):
+            if not self.assign_gps_probe(
+                vehicle_id
+            ):
+
                 continue
 
             x, y = traci.vehicle.getPosition(
@@ -301,40 +496,49 @@ class SensorSimulator:
 
             observations.append({
 
-                "id": vehicle_id,
+                "id":
+                    vehicle_id,
 
                 "position": {
-                    "x": round(x, 2),
-                    "y": round(y, 2),
+
+                    "x":
+                        round(x, 2),
+
+                    "y":
+                        round(y, 2),
                 },
 
-                "speed": round(
-                    traci.vehicle.getSpeed(
+                "speed":
+                    round(
+                        traci.vehicle.getSpeed(
+                            vehicle_id
+                        ),
+                        2,
+                    ),
+
+                "edge":
+                    traci.vehicle.getRoadID(
                         vehicle_id
                     ),
-                    2,
-                ),
 
-                "edge": traci.vehicle.getRoadID(
-                    vehicle_id
-                ),
-
-                "lane": traci.vehicle.getLaneID(
-                    vehicle_id
-                ),
+                "lane":
+                    traci.vehicle.getLaneID(
+                        vehicle_id
+                    ),
 
                 "vehicle_type":
                     traci.vehicle.getTypeID(
                         vehicle_id
                     ),
 
-                "timestamp": timestamp,
+                "timestamp":
+                    timestamp,
             })
 
         return observations
 
     # ========================================================
-    # CCTV
+    # CCTV OBSERVATIONS
     # ========================================================
 
     def get_cctv_observations(
@@ -345,9 +549,10 @@ class SensorSimulator:
 
         observations = []
 
-        for camera_id, camera_edge in (
-            CAMERA_APPROACHES.items()
-        ):
+        for (
+            camera_id,
+            camera_edge
+        ) in CAMERA_APPROACHES.items():
 
             for vehicle_id in vehicle_ids:
 
@@ -355,16 +560,22 @@ class SensorSimulator:
                     vehicle_id,
                     camera_edge,
                 ):
+
                     continue
 
-                detection_value = self._random_value(
-                    vehicle_id,
-                    camera_id,
+                detection_value = (
+                    self._random_value(
+                        vehicle_id,
+                        camera_id,
+                    )
                 )
 
-                if detection_value >= (
+                if (
+                    detection_value
+                    >=
                     self.config.cctv_detection
                 ):
+
                     continue
 
                 x, y = traci.vehicle.getPosition(
@@ -373,43 +584,54 @@ class SensorSimulator:
 
                 observations.append({
 
-                    "camera_id": camera_id,
+                    "camera_id":
+                        camera_id,
 
-                    "id": vehicle_id,
+                    "id":
+                        vehicle_id,
 
                     "position": {
-                        "x": round(x, 2),
-                        "y": round(y, 2),
+
+                        "x":
+                            round(x, 2),
+
+                        "y":
+                            round(y, 2),
                     },
 
-                    "speed": round(
-                        traci.vehicle.getSpeed(
+                    "speed":
+                        round(
+                            traci.vehicle.getSpeed(
+                                vehicle_id
+                            ),
+                            2,
+                        ),
+
+                    "edge":
+                        traci.vehicle.getRoadID(
                             vehicle_id
                         ),
-                        2,
-                    ),
 
-                    "edge": traci.vehicle.getRoadID(
-                        vehicle_id
-                    ),
-
-                    "lane": traci.vehicle.getLaneID(
-                        vehicle_id
-                    ),
-
-                    "lane_position": round(
-                        traci.vehicle.getLanePosition(
+                    "lane":
+                        traci.vehicle.getLaneID(
                             vehicle_id
                         ),
-                        2,
-                    ),
+
+                    "lane_position":
+                        round(
+                            traci.vehicle.getLanePosition(
+                                vehicle_id
+                            ),
+                            2,
+                        ),
 
                     "vehicle_type":
                         traci.vehicle.getTypeID(
                             vehicle_id
                         ),
 
-                    "timestamp": timestamp,
+                    "timestamp":
+                        timestamp,
                 })
 
         return observations
@@ -469,39 +691,52 @@ class SensorSimulator:
 
             ground_truth.append({
 
-                "id": vehicle_id,
+                "id":
+                    vehicle_id,
 
                 "position": {
-                    "x": round(x, 2),
-                    "y": round(y, 2),
+
+                    "x":
+                        round(x, 2),
+
+                    "y":
+                        round(y, 2),
                 },
 
-                "speed": round(
-                    speed,
-                    2,
-                ),
+                "speed":
+                    round(
+                        speed,
+                        2,
+                    ),
 
-                "edge": edge,
+                "edge":
+                    edge,
 
-                "lane": lane,
+                "lane":
+                    lane,
 
-                "lane_position": round(
-                    lane_position,
-                    2,
-                ),
+                "lane_position":
+                    round(
+                        lane_position,
+                        2,
+                    ),
 
-                "route": route,
+                "route":
+                    route,
 
-                "route_index": route_index,
+                "route_index":
+                    route_index,
 
-                "movement": movement,
+                "movement":
+                    movement,
 
                 "vehicle_type":
                     traci.vehicle.getTypeID(
                         vehicle_id
                     ),
 
-                "timestamp": timestamp,
+                "timestamp":
+                    timestamp,
             })
 
         return ground_truth
@@ -511,14 +746,27 @@ class SensorSimulator:
     # ========================================================
 
     def get_sensor_data(self):
+        """
+        Collect all sensor observations for the current
+        SUMO timestep.
+
+        SUMO must already have been advanced with:
+
+            traci.simulationStep()
+
+        before this function is called.
+        """
 
         timestamp = traci.simulation.getTime()
 
-        vehicle_ids = traci.vehicle.getIDList()
+        vehicle_ids = (
+            traci.vehicle.getIDList()
+        )
 
         return {
 
-            "timestamp": timestamp,
+            "timestamp":
+                timestamp,
 
             "ground_truth":
                 self.get_ground_truth(

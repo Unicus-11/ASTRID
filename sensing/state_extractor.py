@@ -1,14 +1,70 @@
 """
-ASTRID state extractor.
+Run/read the simulation state and produce synthetic sensor observations.
 
-Usage:
+For example:
 
-    python state_extractor.py baseline
+Step 0
+├── Ground truth vehicles
+├── GPS observations
+├── CCTV observations
+├── Traffic state
+└── Signal state
 
-    python state_extractor.py realistic_gps
+Step 1
+├── Ground truth vehicles
+├── GPS observations
+├── CCTV observations
+├── Traffic state
+└── Signal state
 
-    python state_extractor.py sensor_degradation
+This doesn't create database.
+
+The structure is:
+
+SUMO
+ ↓
+TraCI
+ ↓
+sensor_simulator.py
+ ↓
+GPS + CCTV + ground truth
+ ↓
+state_extractor.py
+ ↓
+sensor_dataset.json
+
+Our incoming roads are about 484.9 m long, so each camera
+observes only the final 150 m approaching the junction.
+
+IMPORTANT ARCHITECTURE
+----------------------
+
+There is only ONE copy of this file.
+
+The same state_extractor.py is used repeatedly:
+
+    scenario_001 → SUMO → dataset_001
+    scenario_002 → SUMO → dataset_002
+    scenario_003 → SUMO → dataset_003
+                     ...
+    scenario_200 → SUMO → dataset_200
+
+This file does NOT create scenarios.
+
+create_scenarios.py
+    creates scenario.json
+
+scenario_builder.py
+    converts scenario.json into SUMO input files
+
+state_extractor.py
+    runs SUMO and extracts the resulting dataset
+
+run_all_scenarios.py
+    will later orchestrate all 200 scenarios
 """
+
+
 import json
 import sys
 from pathlib import Path
@@ -31,11 +87,13 @@ from controller.normal_controller import (
 # PATHS
 # ============================================================
 
-# state_extractor.py is inside ASTRID/sensing/,
+# state_extractor.py is inside ASTRID/sensing/
 # therefore parent.parent is the project root.
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 SCENARIOS_DIR = PROJECT_ROOT / "scenarios"
+
 DATASETS_DIR = PROJECT_ROOT / "datasets"
 
 SUMO_DIR = (
@@ -45,6 +103,7 @@ SUMO_DIR = (
 )
 
 NET_FILE = SUMO_DIR / "sq.net.xml"
+
 
 # ============================================================
 # CONSTANTS
@@ -67,7 +126,7 @@ TLS_ID = "0"
 
 def load_scenario(
     scenario_name: str,
-):
+) -> dict:
 
     scenario_dir = (
         SCENARIOS_DIR
@@ -94,6 +153,9 @@ def load_scenario(
 
         scenario = json.load(f)
 
+    # The directory name and JSON name
+    # must refer to the same scenario.
+
     if scenario.get("name") != scenario_name:
 
         raise ValueError(
@@ -110,123 +172,397 @@ def load_scenario(
 # ============================================================
 
 def validate_scenario(
-    scenario,
+    scenario: dict,
 ):
+    """
+    Validate the current ASTRID scenario.json format.
+
+    Source of truth:
+
+        {
+            "name": "...",
+            "seed": ...,
+            "simulation_end": ...,
+            "demand": "...",
+            "demand_rate": ...,
+            "total_vehicles": ...,
+            "vehicle_distribution": {...},
+            "approach_distribution": {...},
+            "movement_distribution": {...},
+            "gps_penetration": ...,
+            "cctv_detection": ...
+        }
+
+    The old demand structure is NOT supported:
+
+        demand.class
+        demand.profile
+        demand.profile.base
+        demand.profile.peak
+    """
+
+    # --------------------------------------------------------
+    # Required fields
+    # --------------------------------------------------------
 
     required = {
-
         "name",
         "seed",
         "simulation_end",
+        "demand",
+        "demand_rate",
         "total_vehicles",
-
         "vehicle_distribution",
         "approach_distribution",
         "movement_distribution",
-
         "gps_penetration",
         "cctv_detection",
     }
 
-    missing = (
-        required
-        - set(scenario)
-    )
+    missing = required - set(scenario)
 
     if missing:
-
         raise ValueError(
             "Scenario missing fields: "
-            + ", ".join(
-                sorted(missing)
-            )
+            + ", ".join(sorted(missing))
         )
 
     # --------------------------------------------------------
-    # Basic values
+    # Name
     # --------------------------------------------------------
 
-    if int(scenario["seed"]) < 0:
+    if not isinstance(
+        scenario["name"],
+        str,
+    ) or not scenario["name"].strip():
 
         raise ValueError(
-            "seed must be >= 0"
-        )
-
-    if int(scenario["total_vehicles"]) <= 0:
-
-        raise ValueError(
-            "total_vehicles must be > 0"
-        )
-
-    if int(scenario["simulation_end"]) <= 0:
-
-        raise ValueError(
-            "simulation_end must be > 0"
+            "scenario.name must be a non-empty string."
         )
 
     # --------------------------------------------------------
-    # Distributions
+    # Seed
     # --------------------------------------------------------
 
-    distributions = {
+    try:
+        seed = int(scenario["seed"])
+    except (TypeError, ValueError):
 
-        "vehicle_distribution":
-            scenario["vehicle_distribution"],
+        raise ValueError(
+            "seed must be an integer."
+        )
 
-        "approach_distribution":
-            scenario["approach_distribution"],
+    if seed < 0:
 
-        "movement_distribution":
-            scenario["movement_distribution"],
+        raise ValueError(
+            "seed must be >= 0."
+        )
+
+    # --------------------------------------------------------
+    # Simulation duration
+    # --------------------------------------------------------
+
+    try:
+        simulation_end = int(
+            scenario["simulation_end"]
+        )
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "simulation_end must be an integer."
+        )
+
+    if simulation_end <= 0:
+
+        raise ValueError(
+            "simulation_end must be > 0."
+        )
+
+    # --------------------------------------------------------
+    # Demand class
+    # --------------------------------------------------------
+
+    if not isinstance(
+        scenario["demand"],
+        str,
+    ):
+
+        raise ValueError(
+            "demand must be a string."
+        )
+
+    allowed_demand_classes = {
+        "low",
+        "medium",
+        "high",
+        "very_high",
     }
 
-    for name, distribution in distributions.items():
+    if scenario["demand"] not in allowed_demand_classes:
 
-        total = sum(
-            float(value)
-            for value in distribution.values()
+        raise ValueError(
+            "Unknown demand class: "
+            f"{scenario['demand']}. "
+            f"Expected one of: "
+            f"{sorted(allowed_demand_classes)}"
         )
 
-        if abs(total - 1.0) > 1e-9:
+    # --------------------------------------------------------
+    # Demand rate
+    # --------------------------------------------------------
+
+    try:
+        demand_rate = float(
+            scenario["demand_rate"]
+        )
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "demand_rate must be numeric."
+        )
+
+    if demand_rate <= 0:
+
+        raise ValueError(
+            "demand_rate must be > 0."
+        )
+
+    # --------------------------------------------------------
+    # Total vehicles
+    # --------------------------------------------------------
+
+    try:
+        total_vehicles = int(
+            scenario["total_vehicles"]
+        )
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "total_vehicles must be an integer."
+        )
+
+    if total_vehicles <= 0:
+
+        raise ValueError(
+            "total_vehicles must be > 0."
+        )
+
+    # --------------------------------------------------------
+    # Demand consistency
+    # --------------------------------------------------------
+    #
+    # demand_rate is vehicles/hour.
+    #
+    # Therefore the expected number of vehicles during
+    # the simulation is:
+    #
+    #     demand_rate * simulation_time / 3600
+    #
+    # We check this rather than blindly trusting the JSON.
+    #
+    # Example:
+    #
+    #     demand_rate = 2100 veh/h
+    #     simulation_end = 3600 s
+    #
+    #     expected = 2100 vehicles
+    #
+    # --------------------------------------------------------
+
+    expected_total = round(
+        demand_rate
+        * simulation_end
+        / 3600.0
+    )
+
+    if total_vehicles != expected_total:
+
+        raise ValueError(
+            "Scenario demand is inconsistent.\n"
+            f"demand_rate   = {demand_rate}\n"
+            f"simulation_end = {simulation_end}\n"
+            f"total_vehicles = {total_vehicles}\n"
+            f"expected_total = {expected_total}"
+        )
+
+    # --------------------------------------------------------
+    # Vehicle distribution
+    # --------------------------------------------------------
+
+    validate_probability_distribution(
+        scenario["vehicle_distribution"],
+        "vehicle_distribution",
+        [
+            "bike",
+            "car",
+            "bus",
+            "hgv",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # Approach distribution
+    # --------------------------------------------------------
+
+    validate_probability_distribution(
+        scenario["approach_distribution"],
+        "approach_distribution",
+        [
+            "north",
+            "south",
+            "east",
+            "west",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # Movement distribution
+    # --------------------------------------------------------
+
+    validate_probability_distribution(
+        scenario["movement_distribution"],
+        "movement_distribution",
+        [
+            "left",
+            "straight",
+            "right",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # GPS penetration
+    # --------------------------------------------------------
+
+    try:
+        gps = float(
+            scenario["gps_penetration"]
+        )
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "gps_penetration must be numeric."
+        )
+
+    if not 0.0 <= gps <= 1.0:
+
+        raise ValueError(
+            "gps_penetration must be "
+            "between 0 and 1."
+        )
+
+    # --------------------------------------------------------
+    # CCTV detection
+    # --------------------------------------------------------
+
+    try:
+        cctv = float(
+            scenario["cctv_detection"]
+        )
+    except (TypeError, ValueError):
+
+        raise ValueError(
+            "cctv_detection must be numeric."
+        )
+
+    if not 0.0 <= cctv <= 1.0:
+
+        raise ValueError(
+            "cctv_detection must be "
+            "between 0 and 1."
+        )
+
+
+# ============================================================
+# VALIDATE PROBABILITY DISTRIBUTION
+# ============================================================
+
+def validate_probability_distribution(
+    distribution: dict,
+    name: str,
+    expected_keys=None,
+):
+    """
+    Validate a probability distribution.
+
+    Requirements:
+
+        - must be a dictionary
+        - must not be empty
+        - required keys must exist
+        - probabilities cannot be negative
+        - probabilities must sum to 1.0
+    """
+
+    if not isinstance(
+        distribution,
+        dict,
+    ):
+
+        raise ValueError(
+            f"{name} must be an object."
+        )
+
+    if not distribution:
+
+        raise ValueError(
+            f"{name} cannot be empty."
+        )
+
+    # --------------------------------------------------------
+    # Required keys
+    # --------------------------------------------------------
+
+    if expected_keys is not None:
+
+        missing = (
+            set(expected_keys)
+            - set(distribution)
+        )
+
+        if missing:
 
             raise ValueError(
-                f"{name} must sum to 1.0. "
-                f"Current sum = {total}"
+                f"{name} missing keys: "
+                f"{sorted(missing)}"
             )
 
-        for key, value in distribution.items():
-
-            if float(value) < 0:
-
-                raise ValueError(
-                    f"{name}[{key}] cannot be negative."
-                )
-
     # --------------------------------------------------------
-    # Sensor configuration
+    # Validate individual probabilities
     # --------------------------------------------------------
 
-    gps = float(
-        scenario["gps_penetration"]
+    for key, value in distribution.items():
+
+        try:
+            value = float(value)
+
+        except (TypeError, ValueError):
+
+            raise ValueError(
+                f"{name}[{key}] must be numeric."
+            )
+
+        if value < 0:
+
+            raise ValueError(
+                f"{name}[{key}] "
+                "cannot be negative."
+            )
+
+    # --------------------------------------------------------
+    # Validate total
+    # --------------------------------------------------------
+
+    total = sum(
+        float(value)
+        for value in distribution.values()
     )
 
-    cctv = float(
-        scenario["cctv_detection"]
-    )
-
-    if not 0 <= gps <= 1:
+    if abs(total - 1.0) > 1e-5:
 
         raise ValueError(
-            "gps_penetration must be between 0 and 1"
+            f"{name} must sum to 1.0. "
+            f"Current sum = {total}"
         )
-
-    if not 0 <= cctv <= 1:
-
-        raise ValueError(
-            "cctv_detection must be between 0 and 1"
-        )
-
-
 # ============================================================
 # VEHICLE FEATURES
 # ============================================================
@@ -234,8 +570,13 @@ def validate_scenario(
 def calculate_vehicle_features(
     ground_truth,
 ):
+    """
+    Calculate vehicle-type and movement counts
+    from the current ground-truth observation.
+    """
 
     vehicle_types = Counter()
+
     movements = Counter()
 
     for vehicle in ground_truth:
@@ -249,10 +590,16 @@ def calculate_vehicle_features(
         )
 
         if vehicle_type:
-            vehicle_types[vehicle_type] += 1
+
+            vehicle_types[
+                vehicle_type
+            ] += 1
 
         if movement:
-            movements[movement] += 1
+
+            movements[
+                movement
+            ] += 1
 
     result = {
 
@@ -304,8 +651,17 @@ def calculate_vehicle_features(
 def calculate_traffic_state(
     previous_edge_vehicles,
 ):
+    """
+    Calculate traffic state on the four incoming roads.
 
-    vehicle_ids = traci.vehicle.getIDList()
+    Queue definition:
+
+        vehicle speed < QUEUE_SPEED_THRESHOLD
+    """
+
+    vehicle_ids = (
+        traci.vehicle.getIDList()
+    )
 
     edge_vehicles = {
 
@@ -315,10 +671,16 @@ def calculate_traffic_state(
         in DIRECTION_EDGES.values()
     }
 
+    # --------------------------------------------------------
+    # Collect vehicles by incoming edge
+    # --------------------------------------------------------
+
     for vehicle_id in vehicle_ids:
 
-        edge_id = traci.vehicle.getRoadID(
-            vehicle_id
+        edge_id = (
+            traci.vehicle.getRoadID(
+                vehicle_id
+            )
         )
 
         if edge_id in edge_vehicles:
@@ -330,6 +692,10 @@ def calculate_traffic_state(
             )
 
     state = {}
+
+    # --------------------------------------------------------
+    # Calculate state for each approach
+    # --------------------------------------------------------
 
     for direction, edge_id in (
         DIRECTION_EDGES.items()
@@ -349,6 +715,10 @@ def calculate_traffic_state(
             in vehicles
         ]
 
+        # ----------------------------------------------------
+        # Average speed
+        # ----------------------------------------------------
+
         if speeds:
 
             average_speed = (
@@ -360,6 +730,10 @@ def calculate_traffic_state(
 
             average_speed = 0.0
 
+        # ----------------------------------------------------
+        # Queue
+        # ----------------------------------------------------
+
         queue = sum(
 
             1
@@ -370,13 +744,18 @@ def calculate_traffic_state(
             < QUEUE_SPEED_THRESHOLD
         )
 
+        # ----------------------------------------------------
+        # Arrivals
+        # ----------------------------------------------------
+
         current_set = set(
             vehicles
         )
 
         arrivals = len(
             current_set
-            - previous_edge_vehicles[
+            -
+            previous_edge_vehicles[
                 edge_id
             ]
         )
@@ -384,6 +763,10 @@ def calculate_traffic_state(
         previous_edge_vehicles[
             edge_id
         ] = current_set
+
+        # ----------------------------------------------------
+        # Store state
+        # ----------------------------------------------------
 
         state[direction] = {
 
@@ -413,6 +796,9 @@ def calculate_traffic_state(
 def calculate_camera_counts(
     cctv,
 ):
+    """
+    Count CCTV detections by camera.
+    """
 
     counts = {
 
@@ -424,13 +810,15 @@ def calculate_camera_counts(
 
     for observation in cctv:
 
-        camera_id = observation[
+        camera_id = observation.get(
             "camera_id"
-        ]
+        )
 
         if camera_id in counts:
 
-            counts[camera_id] += 1
+            counts[
+                camera_id
+            ] += 1
 
     return counts
 
@@ -441,7 +829,18 @@ def calculate_camera_counts(
 
 def run_simulation(
     scenario_name: str,
+    use_gui: bool = True,
 ):
+    """
+    Run exactly ONE scenario.
+
+    The same function can later be called repeatedly
+    by run_all_scenarios.py.
+    """
+
+    # ========================================================
+    # LOAD + VALIDATE
+    # ========================================================
 
     scenario = load_scenario(
         scenario_name
@@ -455,6 +854,10 @@ def run_simulation(
         SCENARIOS_DIR
         / scenario_name
     )
+
+    # ========================================================
+    # SUMO FILES
+    # ========================================================
 
     route_file = (
         scenario_dir
@@ -471,10 +874,6 @@ def run_simulation(
         / "sq.flow.xml"
     )
 
-    # ========================================================
-    # CHECK GENERATED FILES
-    # ========================================================
-
     required_files = [
 
         NET_FILE,
@@ -489,7 +888,7 @@ def run_simulation(
 
             raise FileNotFoundError(
 
-                f"Required file not found:\n"
+                f"Required SUMO file not found:\n"
                 f"{file_path}\n\n"
                 f"Run scenario_builder.py first."
             )
@@ -500,22 +899,30 @@ def run_simulation(
 
     sensor_config = SensorConfig(
 
-        scenario_name=scenario["name"],
+        scenario_name=scenario[
+            "name"
+        ],
 
         seed=int(
             scenario["seed"]
         ),
 
         gps_penetration=float(
-            scenario["gps_penetration"]
+            scenario[
+                "gps_penetration"
+            ]
         ),
 
         cctv_detection=float(
-            scenario["cctv_detection"]
+            scenario[
+                "cctv_detection"
+            ]
         ),
 
         simulation_end=int(
-            scenario["simulation_end"]
+            scenario[
+                "simulation_end"
+            ]
         ),
     )
 
@@ -552,20 +959,28 @@ def run_simulation(
     print("=" * 70)
 
     print(
-        f"Scenario:          {scenario['name']}"
+        f"Scenario:          "
+        f"{scenario['name']}"
     )
 
     print(
-        f"Seed:              {scenario['seed']}"
+        f"Seed:              "
+        f"{scenario['seed']}"
     )
 
     print(
-        f"Total vehicles:    {scenario['total_vehicles']}"
+        f"Demand class:      "
+        f"{scenario['demand']}"
     )
 
     print(
-        f"Demand:            "
-        f"{scenario.get('demand', 'undefined')}"
+        f"Demand rate:       "
+        f"{scenario['demand_rate']} veh/h"
+    )
+
+    print(
+        f"Total vehicles:    "
+        f"{scenario['total_vehicles']}"
     )
 
     print(
@@ -580,7 +995,7 @@ def run_simulation(
 
     print(
         f"Simulation end:    "
-        f"{scenario['simulation_end']}"
+        f"{scenario['simulation_end']} s"
     )
 
     print("=" * 70)
@@ -588,18 +1003,35 @@ def run_simulation(
     print()
     print("Scenario files:")
 
-    print(f"  Network: {NET_FILE}")
-    print(f"  Flow:    {flow_file}")
-    print(f"  VType:   {vtype_file}")
-    print(f"  Route:   {route_file}")
+    print(
+        f"  Network: {NET_FILE}"
+    )
+
+    print(
+        f"  Flow:    {flow_file}"
+    )
+
+    print(
+        f"  VType:   {vtype_file}"
+    )
+
+    print(
+        f"  Route:   {route_file}"
+    )
 
     # ========================================================
     # START SUMO
     # ========================================================
 
+    sumo_binary = (
+        "sumo-gui"
+        if use_gui
+        else "sumo"
+    )
+
     traci.start([
 
-        "sumo-gui",
+        sumo_binary,
 
         "--net-file",
         str(NET_FILE),
@@ -608,14 +1040,18 @@ def run_simulation(
         str(route_file),
 
         "--seed",
-        str(scenario["seed"]),
+        str(
+            scenario["seed"]
+        ),
 
         "--begin",
         "0",
 
         "--end",
         str(
-            scenario["simulation_end"]
+            scenario[
+                "simulation_end"
+            ]
         ),
 
         "--quit-on-end",
@@ -623,7 +1059,10 @@ def run_simulation(
     ])
 
     print()
-    print("SUMO connected.")
+    print(
+        f"SUMO connected using "
+        f"{sumo_binary}."
+    )
 
     # ========================================================
     # NORMAL CONTROLLER
@@ -634,7 +1073,7 @@ def run_simulation(
     )
 
     # ========================================================
-    # STATE
+    # PREVIOUS VEHICLES
     # ========================================================
 
     previous_edge_vehicles = {
@@ -645,6 +1084,10 @@ def run_simulation(
         in DIRECTION_EDGES.values()
     }
 
+    # ========================================================
+    # DATASET
+    # ========================================================
+
     dataset = []
 
     # ========================================================
@@ -653,10 +1096,11 @@ def run_simulation(
 
     try:
 
-        while (
-            traci.simulation.getMinExpectedNumber()
-            > 0
-        ):
+        while True:
+
+            # ------------------------------------------------
+            # Check simulation state
+            # ------------------------------------------------
 
             current_time = (
                 traci.simulation.getTime()
@@ -665,13 +1109,36 @@ def run_simulation(
             if current_time >= (
                 sensor_config.simulation_end
             ):
+
                 break
+
+            if (
+                traci.simulation
+                .getMinExpectedNumber()
+                <= 0
+            ):
+
+                break
+
+            # ------------------------------------------------
+            # Advance SUMO
+            # ------------------------------------------------
 
             traci.simulationStep()
 
             simulation_time = (
                 traci.simulation.getTime()
             )
+
+            # ------------------------------------------------
+            # Stop if simulation has reached end
+            # ------------------------------------------------
+
+            if simulation_time > (
+                sensor_config.simulation_end
+            ):
+
+                break
 
             # ------------------------------------------------
             # Traffic state
@@ -684,7 +1151,7 @@ def run_simulation(
             )
 
             # ------------------------------------------------
-            # Sensors
+            # Sensor observations
             # ------------------------------------------------
 
             sensor_data = (
@@ -697,7 +1164,9 @@ def run_simulation(
 
             camera_counts = (
                 calculate_camera_counts(
-                    sensor_data["cctv"]
+                    sensor_data[
+                        "cctv"
+                    ]
                 )
             )
 
@@ -736,12 +1205,16 @@ def run_simulation(
 
                 "gps_count":
                     len(
-                        sensor_data["gps"]
+                        sensor_data[
+                            "gps"
+                        ]
                     ),
 
                 "cctv_count":
                     len(
-                        sensor_data["cctv"]
+                        sensor_data[
+                            "cctv"
+                        ]
                     ),
 
                 "camera_counts":
@@ -765,10 +1238,13 @@ def run_simulation(
             if len(dataset) % 100 == 0:
 
                 print(
+
                     f"Time: "
                     f"{simulation_time:7.1f}s | "
+
                     f"Records: "
                     f"{len(dataset):5d} | "
+
                     f"Vehicles: "
                     f"{len(sensor_data['ground_truth']):4d}"
                 )
@@ -776,7 +1252,7 @@ def run_simulation(
     finally:
 
         # ====================================================
-        # SAVE
+        # SAVE DATASET
         # ====================================================
 
         with open(
@@ -798,12 +1274,25 @@ def run_simulation(
         )
 
         print(
-            f"Path: {dataset_path}"
+            f"Path: "
+            f"{dataset_path}"
         )
 
-        traci.close()
+        # ====================================================
+        # CLOSE SUMO
+        # ====================================================
 
-        print("SUMO closed.")
+        try:
+
+            traci.close()
+
+        except Exception:
+
+            pass
+
+        print(
+            "SUMO closed."
+        )
 
 
 # ============================================================
@@ -812,27 +1301,61 @@ def run_simulation(
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
 
         print(
             "Usage:"
         )
 
         print(
-            "python state_extractor.py <scenario_name>"
+            "  python -m sensing.state_extractor "
+            "<scenario_name>"
         )
 
         print()
+
         print(
-            "Example:"
+            "GUI:"
         )
 
         print(
-            "python state_extractor.py baseline"
+            "  python -m sensing.state_extractor "
+            "scenario_0043"
+        )
+
+        print()
+
+        print(
+            "Without GUI:"
+        )
+
+        print(
+            "  python -m sensing.state_extractor "
+            "scenario_0043 --nogui"
         )
 
         sys.exit(1)
 
+    scenario_name = sys.argv[1]
+
+    use_gui = True
+
+    if len(sys.argv) == 3:
+
+        if sys.argv[2] == "--nogui":
+
+            use_gui = False
+
+        else:
+
+            print(
+                "Unknown option: "
+                f"{sys.argv[2]}"
+            )
+
+            sys.exit(1)
+
     run_simulation(
-        sys.argv[1]
+        scenario_name,
+        use_gui=use_gui,
     )

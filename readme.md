@@ -603,6 +603,64 @@ First we need to make sure that the dataset is structurally and logically correc
 
 
 
+-------67767q8yyh
+
+                    create_scenarios.py
+                            │
+                            │
+                    "What experiment?"
+                            │
+          ┌─────────────────┼──────────────────┐
+          ↓                 ↓                  ↓
+       Demand          Vehicle mix        Movements
+     700–3200/h       Bike/Car/Bus/HGV    L/R/S
+          │                 │                  │
+          └─────────────────┼──────────────────┘
+                            │
+                    scenario.json
+                            │
+                            ↓
+                  scenario_builder.py
+                            │
+             ┌──────────────┴──────────────┐
+             ↓                             ↓
+       sq.vtype.xml                   sq.flow.xml
+             │                             │
+       "What vehicles?"              "How many/where?"
+             │                             │
+             └──────────────┬──────────────┘
+                            ↓
+                       DUAROUTER
+                            │
+                            ↓
+                       sq.rou.xml
+                            │
+                            ↓
+                       SUMO
+                            │
+             ┌──────────────┼──────────────┐
+             ↓              ↓              ↓
+          vehicles        signals        network
+             │
+             ↓
+       TRAFFIC EMERGES
+             │
+       ┌─────┴─────┐
+       ↓           ↓
+     Queue       Speed
+       ↓           ↓
+       └─────┬─────┘
+             ↓
+    sensor_simulator.py
+             ↓
+       GPS + CCTV
+             ↓
+      state_extractor.py
+             ↓
+        DATASET
+             ↓
+      Neural Network
+
 
                      GO ==> DISHA@LAPTOP-JO1S4POA MINGW64 ~/SIH/ASTRID/scripts (main)
 $ python scenario_builder.py
