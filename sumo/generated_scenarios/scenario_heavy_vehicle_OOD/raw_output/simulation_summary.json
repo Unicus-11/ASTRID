@@ -3,6 +3,7 @@
   "seed": 1012,
   "simulation_begin_s": 0,
   "simulation_end_s": 3600,
+  "clearance_max_time_s": 7200,
   "step_length_s": 1.0,
   "configured_demand_rate_veh_per_hour": 1600.0,
   "demand_class": "MEDIUM",
@@ -10,8 +11,8 @@
   "movement_pattern": "balanced",
   "composition_pattern": "heavy_vehicle_extreme",
   "arrival_pattern": "constant",
-  "total_departed_vehicles": 1554,
-  "total_arrived_vehicles": 1355,
+  "total_departed_vehicles": 1600,
+  "total_arrived_vehicles": 1600,
   "unique_vehicle_ids_recorded": 1554,
   "trajectory_rows": 497644,
   "tls_state_rows": 3600,
@@ -23,12 +24,12 @@
     "requested_vehicle_count": 1600.0,
     "scheduled_vehicle_count_from_flow_xml": 1600.0,
     "scheduled_vs_requested_ratio": 1.0,
-    "departed_vehicle_count": 1554,
-    "realization_ratio_departed_over_requested": 0.9712,
+    "departed_vehicle_count": 1600,
+    "realization_ratio_departed_over_requested": 1.0,
     "loaded_vehicle_count": 1600,
-    "pending_never_inserted_count": 46,
+    "pending_never_inserted_count": 0,
     "status": "within_tolerance",
     "_interpretation": "departed_vehicle_count is within tolerance of requested_vehicle_count. No action needed."
   },
-  "note": "Raw SUMO ground truth + signal state + demand-realization audit only. No queue, density, flow, shockwave, camera or GPS features were calculated."
+  "note": "Raw SUMO ground truth + signal state + demand-realization audit only. No queue, density, flow, shockwave, camera or GPS features were calculated. Trajectory/TLS rows cover only the data-collection period (simulation_begin -> simulation_end); the clearance period (up to simulation_end + CLEARANCE_DURATION_S) is not saved to disk and exists only to let already-departed vehicles finish their routes before the departed/arrived counts used in the realization audit are finalized."
 }

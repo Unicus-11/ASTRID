@@ -2,9 +2,9 @@
   "requested_vehicle_count": 800.0,
   "scheduled_vehicle_count_from_flow_xml": 800.0,
   "scheduled_vs_requested_ratio": 1.0,
-  "departed_vehicle_count": 800,
-  "realization_ratio_departed_over_requested": 1.0,
-  "loaded_vehicle_count": 800,
+  "departed_vehicle_count": 812,
+  "realization_ratio_departed_over_requested": 1.015,
+  "loaded_vehicle_count": 812,
   "pending_never_inserted_count": 0,
   "status": "within_tolerance",
   "_interpretation": "departed_vehicle_count is within tolerance of requested_vehicle_count. No action needed."

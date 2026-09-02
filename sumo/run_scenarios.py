@@ -36,7 +36,7 @@ v0.3 changes (this investigation):
         departed_vehicle_count    = vehicles TraCI actually inserted (as before)
         pending_never_inserted    = vehicles SUMO LOADED from flow.xml but
                                      never managed to insert onto the network
-                                     before the sim ended (still queued,
+                                     before the run ended (still queued,
                                      waiting for a gap) -- this is the
                                      "insertion-delay/pending-vehicle"
                                      diagnostic: it tells you whether unmet
@@ -55,6 +55,46 @@ v0.3 changes (this investigation):
     scenario should be lowered in demand, given a longer simulation window,
     or explicitly kept and relabeled as a demand-constrained experiment is
     yours to make from this report, not something this script decides.
+
+v0.3.1 changes (simulation completion logic fix):
+    The run previously stepped SUMO only across the scenario's own
+    observation window (simulation_begin -> simulation_end, e.g. 0 ->
+    3600s) and, within that same window, would also break out early the
+    moment traci.simulation.getMinExpectedNumber() reported 0 -- using
+    "no vehicles expected" as if it were the definition of a successfully
+    realized/completed run. That conflated two different things: (a) the
+    fixed 3600s window that DEFINES the dataset (what gets written to
+    vehicle_trajectories.csv / tls_state.csv), and (b) whether vehicles
+    generated inside that window actually got to finish their routes.
+    Vehicles still in transit at simulation_end were simply cut off, with
+    no chance to arrive, which understated departed/arrived counts and
+    made capacity_constrained look worse than it was.
+
+    Fixed by splitting the run into two explicit phases:
+
+    Phase 1 -- DATA-COLLECTION PERIOD (0 -> simulation_end, e.g. 3600s):
+        The only period for which trajectory rows and TLS-state rows are
+        written to disk. This defines the dataset and is unchanged in
+        length, demand, routes, signal timing, or teleport settings.
+
+    Phase 2 -- CLEARANCE PERIOD (simulation_end -> simulation_end +
+        CLEARANCE_DURATION_S, e.g. 3600 -> 7200s, MAXIMUM only):
+        No new vehicles are scheduled here (flow.xml has nothing beyond
+        simulation_end), and no trajectory/TLS rows are written -- this
+        phase exists solely to let vehicles that already departed during
+        Phase 1 finish clearing the network. The loop stops as soon as
+        traci.simulation.getMinExpectedNumber() == 0 (a SECONDARY
+        completion check -- "nothing left to clear"), or at
+        simulation_end + CLEARANCE_DURATION_S, whichever comes first.
+        getMinExpectedNumber() is never used to define successful demand
+        realization -- that determination is made purely from
+        requested_vehicle_count / scheduled_vehicle_count /
+        departed_vehicle_count / pending_never_inserted_count, as before.
+
+    departed_vehicle_ids and arrived_vehicle_ids are now tracked
+    explicitly as sets (across both phases) instead of via running
+    integer counters, and those sets are what feed the realization audit
+    and the pending-never-inserted diagnostic.
 
 This script still does NOT calculate queue/density/flow/shockwave, and
 does NOT build camera/GPS/ML features. Raw ground truth + audit only.
@@ -114,6 +154,25 @@ def validate_traffic_light() -> None:
 
 
 # ============================================================================
+# SIMULATION TIMING -- data-collection period vs. clearance period
+# ============================================================================
+#
+# Vehicles are generated only during the scenario's own observation window
+# (scenario.json's simulation_begin -> simulation_end, e.g. 0 -> 3600s).
+# That window is ALSO the only period for which trajectory/TLS rows are
+# written to disk -- it defines the dataset and its length is untouched.
+#
+# CLEARANCE_DURATION_S extends the SUMO run (via TraCI stepping, NOT by
+# scheduling any new vehicles -- flow.xml has nothing beyond
+# simulation_end) so vehicles already generated inside the observation
+# window get a chance to finish their route instead of being cut off. This
+# is a MAXIMUM cap, not a target: the clearance loop stops as soon as no
+# vehicles are left expected (a secondary completion check), or at
+# simulation_end + CLEARANCE_DURATION_S, whichever comes first.
+CLEARANCE_DURATION_S = 3600
+
+
+# ============================================================================
 # SUMO COMMAND
 # ============================================================================
 
@@ -164,9 +223,17 @@ def validate_scenario_files(scenario_dir: Path) -> None:
 # ============================================================================
 
 def build_sumo_config(scenario_dir: Path, scenario: dict, output_dir: Path) -> Path:
+    """The configured <end> is the MAXIMUM clearance time (simulation_end +
+    CLEARANCE_DURATION_S), not the dataset's simulation_end, so that
+    --quit-on-end / SUMO's own internal end check never cuts the run off
+    before the clearance phase has had its full window to drain already-
+    departed vehicles. Demand, routes, and signal timing are untouched --
+    this only changes how long SUMO is told it is allowed to keep
+    stepping."""
     config_file = output_dir / "scenario.sumo.cfg"
     begin = int(scenario["simulation_begin"])
     end = int(scenario["simulation_end"])
+    max_clearance_time = end + CLEARANCE_DURATION_S
 
     config_text = f"""<?xml version="1.0" encoding="UTF-8"?>
 
@@ -180,7 +247,7 @@ def build_sumo_config(scenario_dir: Path, scenario: dict, output_dir: Path) -> P
 
     <time>
         <begin value="{begin}"/>
-        <end value="{end}"/>
+        <end value="{max_clearance_time}"/>
         <step-length value="1.0"/>
     </time>
 
@@ -201,7 +268,7 @@ def build_sumo_config(scenario_dir: Path, scenario: dict, output_dir: Path) -> P
 
 
 # ============================================================================
-# REALIZATION AUDIT (new)
+# REALIZATION AUDIT
 # ============================================================================
 
 REALIZATION_STATUS_MEANINGS = {
@@ -217,12 +284,12 @@ REALIZATION_STATUS_MEANINGS = {
     "capacity_constrained": (
         "flow.xml schedules ~the right number of vehicles (scheduled ~= requested), but a "
         "meaningful share of them were LOADED and still waiting for network insertion "
-        "(pending_never_inserted > 0) when the simulation ended -- blocked by queue/lane/signal "
-        "capacity, not discarded. time-to-teleport=-1 means they're never force-inserted. This is "
-        "a real network-capacity limitation, not a bug. Options: lower demand, adjust movement "
-        "splits/signal timing, lengthen the simulation window, or explicitly record this scenario "
-        "as an intentionally demand-constrained experiment (requested != realized) and use the "
-        "REALIZED numbers for any downstream analysis/labels."
+        "(pending_never_inserted > 0) even after the clearance period ended -- blocked by "
+        "queue/lane/signal capacity, not discarded. time-to-teleport=-1 means they're never "
+        "force-inserted. This is a real network-capacity limitation, not a bug. Options: lower "
+        "demand, adjust movement splits/signal timing, lengthen the clearance window, or "
+        "explicitly record this scenario as an intentionally demand-constrained experiment "
+        "(requested != realized) and use the REALIZED numbers for any downstream analysis/labels."
     ),
     "unexplained_shortfall": (
         "scheduled_vehicle_count matches requested, and few/no vehicles were left pending "
@@ -252,6 +319,11 @@ def parse_scheduled_vehicle_count(flow_xml_path: Path) -> float:
 
 
 def classify_realization(requested: float, scheduled: float, departed: int, pending_never_inserted: int) -> str:
+    """Definition of realization success/failure. Deliberately does NOT
+    consult traci.simulation.getMinExpectedNumber() anywhere -- that value
+    is only ever used in the clearance loop as a secondary "can we stop
+    stepping early" check, never as part of what counts as a realized
+    scenario."""
     if requested <= 0:
         return "no_demand"
     if scheduled < requested * REALIZATION_TOLERANCE:
@@ -292,7 +364,8 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
     scenario_id = scenario["scenario_id"]
     seed = int(scenario["seed"])
     begin = int(scenario["simulation_begin"])
-    end = int(scenario["simulation_end"])
+    end = int(scenario["simulation_end"])                 # main data-collection period end (e.g. 3600s)
+    max_clearance_time = end + CLEARANCE_DURATION_S        # maximum wall-clock cap (e.g. 7200s)
     duration_hours = (end - begin) / 3600.0
     requested_vehicle_count = float(scenario["demand_rate_veh_per_hour"]) * duration_hours
 
@@ -328,7 +401,9 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
     print(f"Movement pattern     : {scenario['movement_pattern']}")
     print(f"Composition pattern  : {scenario['composition_pattern']}")
     print(f"Arrival pattern      : {scenario['arrival_pattern']}")
-    print(f"Simulation            : {begin} -> {end} s")
+    print(f"Data-collection period : {begin} -> {end} s (this defines the dataset)")
+    print(f"Clearance period (max) : {end} -> {max_clearance_time} s "
+          f"(no new vehicles, no data saved -- lets departed vehicles finish)")
     print(f"Requested vehicles   : {requested_vehicle_count:.0f}")
     print(f"Scheduled (flow.xml) : {scheduled_vehicle_count:.0f}"
           + ("  <-- MISMATCH with requested, check scenario_builder.py generation"
@@ -355,11 +430,11 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
     tls_columns = ["timestamp", "phase", "state"]
 
     vehicle_rows = 0
-    unique_vehicle_ids = set()
-    loaded_ids_ever = set()   # NEW: everything SUMO ever loaded from flow.xml
+    unique_vehicle_ids = set()          # vehicles recorded in trajectory rows (data-collection period only)
+    loaded_ids_ever = set()             # everything SUMO ever loaded from flow.xml, across both phases
+    departed_vehicle_ids = set()        # everything TraCI actually inserted onto the network, across both phases
+    arrived_vehicle_ids = set()         # everything that completed its route and arrived, across both phases
     max_active_vehicles = 0
-    total_departed = 0
-    total_arrived = 0
     tls_rows = 0
 
     lane_length_cache: dict[str, float] = {}
@@ -378,11 +453,14 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
         try:
             validate_traffic_light()
 
+            # ----------------------------------------------------------------
+            # PHASE 1 -- DATA-COLLECTION PERIOD (begin -> end, e.g. 0 -> 3600s)
+            # This is the ONLY period for which trajectory/TLS rows are
+            # written. Runs the full window every time; not cut short by
+            # getMinExpectedNumber() (that check belongs to the clearance
+            # phase only).
+            # ----------------------------------------------------------------
             while traci.simulation.getTime() < end:
-
-                if traci.simulation.getMinExpectedNumber() == 0:
-                    print(f"SUMO finished early at {traci.simulation.getTime()} s.")
-                    break
 
                 traci.simulationStep()
                 current_time = traci.simulation.getTime()
@@ -392,8 +470,6 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
                 tls_writer.writerow([current_time, phase, state])
                 tls_rows += 1
 
-                # NEW: everything SUMO handed off from flow.xml this step,
-                # whether or not it managed to insert it onto the network.
                 loaded_ids_ever.update(traci.simulation.getLoadedIDList())
 
                 vehicle_ids = traci.vehicle.getIDList()
@@ -444,25 +520,60 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
 
                 departed = traci.simulation.getDepartedIDList()
                 arrived = traci.simulation.getArrivedIDList()
-                total_departed += len(departed)
-                total_arrived += len(arrived)
+                departed_vehicle_ids.update(departed)
+                arrived_vehicle_ids.update(arrived)
 
                 if int(current_time) % 100 == 0:
                     print(
-                        f"{scenario_id}: {int(current_time)}/{end} s | "
+                        f"{scenario_id}: [data-collection] {int(current_time)}/{end} s | "
                         f"active vehicles={active_vehicle_count} | rows={vehicle_rows}"
+                    )
+
+            print(f"{scenario_id}: data-collection period complete at "
+                  f"{traci.simulation.getTime()}s ({vehicle_rows} trajectory rows, {tls_rows} TLS rows).")
+
+            # ----------------------------------------------------------------
+            # PHASE 2 -- CLEARANCE PERIOD (end -> max_clearance_time, max
+            # 3600s more). No new vehicles are scheduled (flow.xml has
+            # nothing beyond `end`); no trajectory/TLS rows are written.
+            # Only purpose: let vehicles that already departed in Phase 1
+            # finish clearing the network. getMinExpectedNumber() == 0 is
+            # used here ONLY as a secondary "can we stop early" check --
+            # never as the definition of successful demand realization.
+            # ----------------------------------------------------------------
+            while traci.simulation.getTime() < max_clearance_time:
+
+                if traci.simulation.getMinExpectedNumber() == 0:
+                    print(f"{scenario_id}: all vehicles cleared at "
+                          f"{traci.simulation.getTime()}s (secondary completion check) -- "
+                          f"stopping clearance phase early.")
+                    break
+
+                traci.simulationStep()
+                current_time = traci.simulation.getTime()
+
+                loaded_ids_ever.update(traci.simulation.getLoadedIDList())
+                departed = traci.simulation.getDepartedIDList()
+                arrived = traci.simulation.getArrivedIDList()
+                departed_vehicle_ids.update(departed)
+                arrived_vehicle_ids.update(arrived)
+
+                if int(current_time) % 100 == 0:
+                    print(
+                        f"{scenario_id}: [clearance] {int(current_time)}/{max_clearance_time} s | "
+                        f"still expected={traci.simulation.getMinExpectedNumber()}"
                     )
         finally:
             traci.close()
 
-    # NEW: vehicles SUMO loaded from flow.xml but that never actually
-    # appeared as an active vehicle (i.e., never got inserted onto the
-    # network before the run ended) -- the insertion-delay/pending diagnostic.
-    pending_never_inserted = loaded_ids_ever - unique_vehicle_ids
+    # Vehicles SUMO loaded from flow.xml but that never actually got
+    # inserted onto the network (across both phases) -- the
+    # insertion-delay/pending diagnostic.
+    pending_never_inserted = loaded_ids_ever - departed_vehicle_ids
     realization_audit = build_realization_audit(
         requested=requested_vehicle_count,
         scheduled=scheduled_vehicle_count,
-        departed=total_departed,
+        departed=len(departed_vehicle_ids),
         loaded=len(loaded_ids_ever),
         pending_never_inserted=len(pending_never_inserted),
     )
@@ -474,6 +585,7 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
         "seed": seed,
         "simulation_begin_s": begin,
         "simulation_end_s": end,
+        "clearance_max_time_s": max_clearance_time,
         "step_length_s": 1.0,
         "configured_demand_rate_veh_per_hour": scenario["demand_rate_veh_per_hour"],
         "demand_class": scenario["demand_class"],
@@ -481,8 +593,8 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
         "movement_pattern": scenario["movement_pattern"],
         "composition_pattern": scenario["composition_pattern"],
         "arrival_pattern": scenario["arrival_pattern"],
-        "total_departed_vehicles": total_departed,
-        "total_arrived_vehicles": total_arrived,
+        "total_departed_vehicles": len(departed_vehicle_ids),
+        "total_arrived_vehicles": len(arrived_vehicle_ids),
         "unique_vehicle_ids_recorded": len(unique_vehicle_ids),
         "trajectory_rows": vehicle_rows,
         "tls_state_rows": tls_rows,
@@ -493,7 +605,11 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
         "realization_audit": realization_audit,
         "note": (
             "Raw SUMO ground truth + signal state + demand-realization audit only. No queue, "
-            "density, flow, shockwave, camera or GPS features were calculated."
+            "density, flow, shockwave, camera or GPS features were calculated. Trajectory/TLS rows "
+            "cover only the data-collection period (simulation_begin -> simulation_end); the "
+            "clearance period (up to simulation_end + CLEARANCE_DURATION_S) is not saved to disk "
+            "and exists only to let already-departed vehicles finish their routes before the "
+            "departed/arrived counts used in the realization audit are finalized."
         ),
     }
 
@@ -502,11 +618,11 @@ def run_one_scenario(scenario_dir: Path, use_gui: bool = False) -> dict:
 
     print()
     print(f"{scenario_id} COMPLETE")
-    print(f"Trajectory rows : {vehicle_rows}")
-    print(f"TLS state rows  : {tls_rows}")
-    print(f"Vehicles seen   : {len(unique_vehicle_ids)}")
-    print(f"Departed        : {total_departed}")
-    print(f"Arrived         : {total_arrived}")
+    print(f"Trajectory rows (data-collection only) : {vehicle_rows}")
+    print(f"TLS state rows (data-collection only)  : {tls_rows}")
+    print(f"Vehicles seen in trajectories           : {len(unique_vehicle_ids)}")
+    print(f"Departed (both phases)                  : {len(departed_vehicle_ids)}")
+    print(f"Arrived (both phases)                   : {len(arrived_vehicle_ids)}")
     print()
     print(f"REALIZATION AUDIT: status={realization_audit['status']}")
     print(f"  requested={realization_audit['requested_vehicle_count']}  "

@@ -1,0 +1,119 @@
+{
+  "scenario_id": "scenario_straight_heavy",
+  "demand_class": "MEDIUM",
+  "webster_diagnostic": {
+    "ns_demand_veh_per_hour": 800.0,
+    "ew_demand_veh_per_hour": 800.0,
+    "y_ns": 0.254,
+    "y_ew": 0.254,
+    "Y": 0.508,
+    "regime": "undersaturated",
+    "_caveat": "Informational diagnostic only in v0.4.0 -- does not drive scenario generation or split assignment. Aggregate NS/EW capacity ratio only; ignores per-movement capacity, stochastic arrival variance, and signal cycling detail."
+  },
+  "per_approach": {
+    "1i": {
+      "max_queue_length_m": 43.1,
+      "max_queue_count": 8,
+      "intervals_with_queue": 655,
+      "intervals_with_queue_beyond_camera": 0,
+      "max_density_veh_per_km": 18.5605,
+      "max_flow_veh_per_hour": 2880.0,
+      "min_mean_speed_mps": 2.0762
+    },
+    "2i": {
+      "max_queue_length_m": 36.09,
+      "max_queue_count": 7,
+      "intervals_with_queue": 642,
+      "intervals_with_queue_beyond_camera": 0,
+      "max_density_veh_per_km": 18.5605,
+      "max_flow_veh_per_hour": 2880.0,
+      "min_mean_speed_mps": 2.2909
+    },
+    "3i": {
+      "max_queue_length_m": 37.99,
+      "max_queue_count": 9,
+      "intervals_with_queue": 666,
+      "intervals_with_queue_beyond_camera": 0,
+      "max_density_veh_per_km": 22.6851,
+      "max_flow_veh_per_hour": 2880.0,
+      "min_mean_speed_mps": 1.7479
+    },
+    "4i": {
+      "max_queue_length_m": 38.76,
+      "max_queue_count": 10,
+      "intervals_with_queue": 656,
+      "intervals_with_queue_beyond_camera": 0,
+      "max_density_veh_per_km": 22.6851,
+      "max_flow_veh_per_hour": 3600.0,
+      "min_mean_speed_mps": 2.0155
+    }
+  },
+  "any_queue_beyond_camera_range": false,
+  "realized_demand": {
+    "requested_total_veh_per_hour": 1600.0,
+    "realized_total_vehicle_count": 1600,
+    "realized_total_veh_per_hour": 1600.0,
+    "per_approach": {
+      "west": {
+        "edge": "1i",
+        "realized_vehicle_count": 400,
+        "realized_veh_per_hour": 400.0,
+        "requested_veh_per_hour": 400.0
+      },
+      "east": {
+        "edge": "2i",
+        "realized_vehicle_count": 400,
+        "realized_veh_per_hour": 400.0,
+        "requested_veh_per_hour": 400.0
+      },
+      "south": {
+        "edge": "3i",
+        "realized_vehicle_count": 400,
+        "realized_veh_per_hour": 400.0,
+        "requested_veh_per_hour": 400.0
+      },
+      "north": {
+        "edge": "4i",
+        "realized_vehicle_count": 400,
+        "realized_veh_per_hour": 400.0,
+        "requested_veh_per_hour": 400.0
+      }
+    },
+    "_note": "realized_vehicle_count counts distinct vehicles first observed on each approach edge; it will not exactly match the requested rate due to normal stochastic variation in SUMO's flow emission process -- large, systematic gaps are worth investigating, small ones are not."
+  },
+  "realized_composition": {
+    "overall": {
+      "bike": 0.5112,
+      "car": 0.2775,
+      "bus": 0.1088,
+      "hgv": 0.1025
+    },
+    "per_approach_edge": {
+      "1i": {
+        "bike": 0.52,
+        "car": 0.2675,
+        "bus": 0.12,
+        "hgv": 0.0925
+      },
+      "2i": {
+        "bike": 0.505,
+        "car": 0.305,
+        "hgv": 0.1075,
+        "bus": 0.0825
+      },
+      "3i": {
+        "bike": 0.4975,
+        "car": 0.2875,
+        "hgv": 0.11,
+        "bus": 0.105
+      },
+      "4i": {
+        "bike": 0.5225,
+        "car": 0.25,
+        "bus": 0.1275,
+        "hgv": 0.1
+      }
+    }
+  },
+  "_note": "This is MEASURED from SUMO output -- unlike the Webster-Y or expected_regime_hint diagnostics in scenario.json, these numbers are ground truth, not a planning estimate."
+}

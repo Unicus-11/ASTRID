@@ -31,6 +31,28 @@ Run:
     python dataset/ground_truth.py                # all scenarios
 
 Depends on: pandas (pip install pandas)
+
+v0.2 changes (this revision):
+    - run_scenarios.py (v0.3.1) now runs a data-collection period
+      (simulation_begin -> simulation_end) followed by a separate,
+      unsaved clearance period. vehicle_trajectories.csv should
+      therefore already contain only data-collection-period rows, but
+      this file no longer trusts that implicitly: every trajectory
+      frame is explicitly filtered to
+      [scenario.simulation_begin, scenario.simulation_end] by
+      timestamp before any ground-truth quantity is computed, so a
+      future change to the raw file's format/contents can never leak
+      clearance-period rows into the ground truth.
+    - vehicle_trajectories.csv now includes a raw
+      "distance_from_stop_line_m" column (computed by run_scenarios.py
+      itself from SUMO's own lane length/position at record time).
+      That column is now the primary source for per-vehicle
+      distance-to-stopline; the old network-metadata-based calculation
+      (attach_distance_to_stopline) is used only as a fallback, and
+      only for rows where the raw column is absent or empty (e.g. an
+      older trajectories file, or a non-approach edge where the raw
+      script did not compute a value). Everything downstream (queue
+      flagging, queue length/count, etc.) is unchanged.
 """
 
 from __future__ import annotations
@@ -61,6 +83,12 @@ SUMO_DIR = PROJECT_ROOT / "sumo"
 SCENARIOS_DIR = SUMO_DIR / "generated_scenarios"
 SCENARIO_CONFIG_FILE = SUMO_DIR / "scenario_config.json"
 
+# Raw column written by run_scenarios.py's trajectory writer.
+RAW_DISTANCE_COLUMN = "distance_from_stop_line_m"
+# Column name used throughout the rest of this module's calculations
+# (queue flagging, queue length, etc.) -- unchanged from the prior version.
+RESOLVED_DISTANCE_COLUMN = "distance_to_stopline_m"
+
 
 # ============================================================================
 # Config / loading
@@ -74,6 +102,65 @@ def load_network_config() -> dict:
 def load_scenario_metadata(scenario_dir: Path) -> dict:
     with open(scenario_dir / "scenario.json", "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ============================================================================
+# Observation-window filtering
+# ============================================================================
+
+def restrict_to_observation_window(df: pd.DataFrame, sim_begin: int, sim_end: int) -> pd.DataFrame:
+    """Defensively restrict trajectory rows to the scenario's own primary
+    observation period (scenario.json's simulation_begin -> simulation_end).
+
+    run_scenarios.py (v0.3.1) only ever writes data-collection-period rows
+    to vehicle_trajectories.csv -- the clearance period that follows is not
+    saved to disk. This filter does not depend on that being true, though:
+    it re-derives the correct window from scenario.json and drops anything
+    outside [sim_begin, sim_end] by timestamp, so a future change to the
+    raw file's format or contents (e.g. if clearance-period rows were ever
+    added) can never silently leak into the ground truth.
+    """
+    mask = (df["timestamp"] >= sim_begin) & (df["timestamp"] <= sim_end)
+    return df.loc[mask].copy()
+
+
+# ============================================================================
+# Distance-to-stopline resolution -- raw column first, network calc fallback
+# ============================================================================
+
+def resolve_distance_to_stopline(
+    df: pd.DataFrame, lane_metadata: dict, approach_edges: List[str]
+) -> pd.DataFrame:
+    """Populate RESOLVED_DISTANCE_COLUMN ("distance_to_stopline_m"), the
+    column every downstream calculation (queue flagging, queue length,
+    etc.) reads.
+
+    Preference order, per row:
+      1. The raw "distance_from_stop_line_m" column already computed by
+         run_scenarios.py at record time (from SUMO's own lane length and
+         lane position) -- used wherever it is present and numeric.
+      2. The old network-metadata-based calculation
+         (attach_distance_to_stopline), used ONLY as a fallback for rows
+         where the raw column is missing, empty, or non-numeric (e.g. an
+         older trajectories file that predates the raw column, or a
+         non-approach edge/row the raw script left blank).
+    """
+    if RAW_DISTANCE_COLUMN in df.columns:
+        raw_distance = pd.to_numeric(df[RAW_DISTANCE_COLUMN], errors="coerce")
+        missing_mask = raw_distance.isna()
+
+        if missing_mask.any():
+            fallback_df = attach_distance_to_stopline(df.copy(), lane_metadata, approach_edges)
+            fallback_distance = fallback_df[RESOLVED_DISTANCE_COLUMN]
+            df[RESOLVED_DISTANCE_COLUMN] = raw_distance.where(~missing_mask, fallback_distance)
+        else:
+            df[RESOLVED_DISTANCE_COLUMN] = raw_distance
+
+        return df
+
+    # No raw column at all (e.g. trajectories file predates run_scenarios.py's
+    # raw distance column) -- fall back to the old calculation entirely.
+    return attach_distance_to_stopline(df, lane_metadata, approach_edges)
 
 
 # ============================================================================
@@ -94,8 +181,22 @@ def build_state_timeseries(
     # -- Flow: count vehicles that CROSS OUT of an approach edge within each interval --
     df_sorted = df.sort_values(["vehicle_id", "timestamp"])
     prev_edge = df_sorted.groupby("vehicle_id")["edge_id"].shift(1)
-    crossed_out = df_sorted["is_on_approach"].groupby(df_sorted["vehicle_id"]).shift(1).fillna(False) \
-        & (~df_sorted["is_on_approach"])
+
+    # is_approach_edge arrives from the raw CSV as int64 (0/1). shift()
+    # introduces NaN for each group's first row, which silently promotes
+    # the column to float64 -- fillna(False) does NOT undo that promotion,
+    # it just writes 0.0 in place of NaN. Bitwise `&` between that float64
+    # series and the int64 `~is_approach_edge` series is what raises
+    # "unsupported operand type(s) for &: 'float' and 'int'" (and even
+    # without the error, `~` on an int column is a numeric bitwise-not,
+    # not a logical negation, so it would be silently wrong too).
+    # Casting to real bool dtype on both sides before shifting/negating
+    # fixes the dtype mismatch and keeps the logic identical: a vehicle
+    # "crossed out" of an approach edge if it WAS on one at the previous
+    # timestamp and is NOT on one now.
+    is_approach_bool = df_sorted["is_approach_edge"].astype(bool)
+    was_on_approach = is_approach_bool.groupby(df_sorted["vehicle_id"]).shift(1).fillna(False).astype(bool)
+    crossed_out = was_on_approach & (~is_approach_bool)
     crossing_events = df_sorted.loc[crossed_out, ["timestamp", "vehicle_id"]].copy()
     crossing_events["approach_edge"] = prev_edge[crossed_out]
     crossing_events = crossing_events[crossing_events["approach_edge"].isin(approach_edges)]
@@ -240,15 +341,28 @@ def process_scenario(scenario_dir: Path, cfg: dict) -> dict:
     approach_length_m = cfg["network"]["approach_length_m"]
     camera_range_m = cfg["network"]["camera_range_m"]
 
+    sim_begin = int(scenario["simulation_begin"])
+    sim_end = int(scenario["simulation_end"])
+
     df = load_trajectories(scenario_dir)
+
+    # Defensive filter: ground truth is computed ONLY from the scenario's
+    # own primary observation window. This must never include
+    # run_scenarios.py's clearance period, regardless of what the raw
+    # trajectories file happens to contain.
+    df = restrict_to_observation_window(df, sim_begin, sim_end)
+
     lane_metadata = load_lane_metadata()
 
-    df = attach_distance_to_stopline(df, lane_metadata, approach_edges)
+    # Prefer the raw per-row distance-to-stopline column written directly
+    # by run_scenarios.py; fall back to the old network-metadata-based
+    # calculation only where that raw value is missing.
+    df = resolve_distance_to_stopline(df, lane_metadata, approach_edges)
     df = flag_queued(df)
 
     state_df = build_state_timeseries(
         df, approach_edges, approach_length_m, camera_range_m,
-        int(scenario["simulation_begin"]), int(scenario["simulation_end"]),
+        sim_begin, sim_end,
     )
     realized_demand = compute_realized_demand(df, scenario, approach_edges, approach_name_to_edge)
     realized_composition = compute_realized_composition(df, approach_edges)

@@ -1,0 +1,32 @@
+{
+  "requested_total_veh_per_hour": 1600.0,
+  "realized_total_vehicle_count": 1470,
+  "realized_total_veh_per_hour": 1470.0,
+  "per_approach": {
+    "west": {
+      "edge": "1i",
+      "realized_vehicle_count": 370,
+      "realized_veh_per_hour": 370.0,
+      "requested_veh_per_hour": 400.0
+    },
+    "east": {
+      "edge": "2i",
+      "realized_vehicle_count": 358,
+      "realized_veh_per_hour": 358.0,
+      "requested_veh_per_hour": 400.0
+    },
+    "south": {
+      "edge": "3i",
+      "realized_vehicle_count": 370,
+      "realized_veh_per_hour": 370.0,
+      "requested_veh_per_hour": 400.0
+    },
+    "north": {
+      "edge": "4i",
+      "realized_vehicle_count": 372,
+      "realized_veh_per_hour": 372.0,
+      "requested_veh_per_hour": 400.0
+    }
+  },
+  "_note": "realized_vehicle_count counts distinct vehicles first observed on each approach edge; it will not exactly match the requested rate due to normal stochastic variation in SUMO's flow emission process -- large, systematic gaps are worth investigating, small ones are not."
+}
