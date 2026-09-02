@@ -663,4 +663,40 @@ First we need to make sure that the dataset is structurally and logically correc
 
 
                      GO ==> DISHA@LAPTOP-JO1S4POA MINGW64 ~/SIH/ASTRID/scripts (main)
-$ python scenario_builder.py
+
+
+python sumo/run_scenarios.py  
+python dataset/ground_truth.py
+python sensors/camera_simulator.py
+python sensors/gps_simulator.py -- --penetration 0.05
+python sensors/gps_simulator.py -- --penetration 0.10
+python sensors/gps_simulator.py -- --penetration 0.15
+python sensors/gps_simulator.py -- --penetration 0.25
+python sensors/gps_simulator.py -- --penetration 0.50
+python sensors/observation_builder.py --penetration 0.05
+python sensors/observation_builder.py --penetration 0.10
+python sensors/observation_builder.py --penetration 0.15
+python sensors/observation_builder.py --penetration 0.25
+python sensors/observation_builder.py --penetration 0.50
+
+
+
+
+
+python dataset/feature_builder.py --layer layer1
+
+python dataset/feature_builder.py --layer layer2 --penetration 0.15
+
+python dataset/assemble_dataset.py --layer layer1
+ python dataset/assemble_dataset.py --layer layer2 --penetration 0.05
+
+ python models/persistence.py --layer layer1
+ python models/persistence.py --layer layer2 --penetration 0.05
+
+
+ 
+$ python models/tree_model.py --layer layer1
+python models/tree_model.py --layer layer2 --penetration 0.05
+
+and add joblib          → pip install joblib
+scikit-learn   → pip install scikit-learn

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ASTRID — Signal Comparison Console</title>
+<link rel="stylesheet" href="style2.css" />
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">
+      <span class="mark">ASTRID</span>
+      <h1>Signal Comparison Console</h1>
+      <span class="sub">Adaptive Signal Timing from Real-Time Traffic Intelligence and Dynamics</span>
+    </div>
+    <div class="scenario-strip" id="scenarioStrip">
+      <span><span class="live-dot"></span><span id="liveLabel">LIVE</span></span>
+      <span>SCENARIO: <b id="scnName">—</b></span>
+      <span>TIME: <b id="scnTime">—</b></span>
+      <span>DEMAND: <b id="scnDemand">—</b></span>
+      <span>WEATHER: <b id="scnWeather">—</b></span>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-bottom:14px;">
+    <!-- LEFT: Normal controller panel -->
+    <div class="panel controller-panel normal">
+      <div class="panel-head">
+        <span class="panel-title">NORMAL CONTROLLER</span>
+        <span class="side-tag tag-normal">WEBSTER BASELINE</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-lamp" id="nLamp"></span>
+        <span class="phase-label" id="nPhase">—</span>
+        <span class="phase-elapsed" id="nElapsed">—</span>
+      </div>
+      <div class="kpi-mini-grid" id="nKpis"></div>
+      <div class="action-box">
+        CURRENT DECISION<br/>
+        Action: <span class="action-val" id="nAction">—</span>
+      </div>
+    </div>
+
+    <!-- RIGHT: ASTRID panel -->
+    <div class="panel controller-panel astrid" id="astridPanel">
+      <div class="panel-head">
+        <span class="panel-title">ASTRID</span>
+        <span class="side-tag tag-astrid" id="astridTag">NOT CONNECTED</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-lamp" id="aLamp"></span>
+        <span class="phase-label" id="aPhase">—</span>
+        <span class="phase-elapsed" id="aElapsed">—</span>
+      </div>
+      <div class="kpi-mini-grid" id="aKpis"></div>
+      <div class="action-box">
+        CURRENT DECISION<br/>
+        Action: <span class="action-val" id="aAction">—</span> &nbsp;·&nbsp; Confidence: <span class="action-val" id="aConf">—</span><br/>
+        Reason: <span id="aReason">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Junction visualization -->
+  <div class="panel full" style="margin-bottom:14px;">
+    <div class="panel-head"><span class="panel-title">JUNCTION — LIVE VIEW</span></div>
+    <div class="junction-wrap">
+      <svg class="junction" viewBox="0 0 620 360" id="junctionSvg"></svg>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns: 1.4fr 1fr; margin-bottom:14px;">
+    <!-- KPI comparison table -->
+    <div class="panel">
+      <div class="panel-head"><span class="panel-title">COMPARATIVE KPIs</span></div>
+      <table class="kpi-table" id="kpiTable">
+        <thead>
+          <tr><th>KPI</th><th>Normal</th><th>ASTRID</th><th>Diff</th></tr>
+        </thead>
+        <tbody id="kpiTableBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Decision explanation -->
+    <div class="panel">
+      <div class="panel-head"><span class="panel-title">WHY ASTRID ACTED</span></div>
+      <div class="why-grid" id="whyGrid"></div>
+      <div class="why-conclusion" id="whyConclusion">Waiting for ASTRID controller to be connected.</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="panel full" style="margin-bottom:14px;">
+    <div class="panel-head"><span class="panel-title">PERFORMANCE OVER TIME</span></div>
+    <div class="chart-grid">
+      <div class="chart-box">
+        <div class="chart-title">QUEUE LENGTH (m)</div>
+        <svg id="chartQueue" viewBox="0 0 300 120" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">DELAY (s)</div>
+        <svg id="chartDelay" viewBox="0 0 300 120" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">THROUGHPUT (veh/h)</div>
+        <svg id="chartThroughput" viewBox="0 0 300 120" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--normal)"></i>Normal</span>
+      <span><i style="background:var(--astrid)"></i>ASTRID</span>
+    </div>
+  </div>
+
+  <!-- Summary banner -->
+  <div class="panel full">
+    <div class="panel-head"><span class="panel-title">ASTRID PERFORMANCE — SESSION SUMMARY</span></div>
+    <div class="summary">
+      <div class="summary-metrics" id="summaryMetrics"></div>
+      <div class="verdict" id="verdict">—</div>
+    </div>
+  </div>
+
+  <script src="script2.js"></script>
+</body>
+</html>

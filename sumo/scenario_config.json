@@ -1,130 +1,136 @@
 {
-   "meta": {
-     "project": "ASTRID",
-     "config_version": "0.2.0",
-     "description": "V0 scenario-generation configuration. CAUSE-layer data only -- no traffic-state values (queue, density, flow, speed, shockwave) may ever be added here.",
-     "changelog": [
-       "0.2.0: corrected route structure to the real 3-edge in->via->out chain; corrected north/south/east/west -> edge mapping using the real network directions; added normal_controller.py compatibility aliases; added an informational (unused-by-generator) signal-phase reference block pending link-index resolution."
-     ]
-   },
- 
-   "network": {
-     "junction_id": "0",
-     "approaches": ["1i", "2i", "3i", "4i"],
-     "approach_compass_direction": {"1i": "WEST", "2i": "EAST", "3i": "SOUTH", "4i": "NORTH"},
-     "lanes_per_approach": 3,
-     "approach_length_m": 484.9,
-     "camera_range_m": 150.0,
- 
-     "movement_map": {
-       "1i": {"left": {"via": "4o", "out": "54o"}, "straight": {"via": "2o", "out": "52o"}, "right": {"via": "3o", "out": "53o"}},
-       "2i": {"left": {"via": "3o", "out": "53o"}, "straight": {"via": "1o", "out": "51o"}, "right": {"via": "4o", "out": "54o"}},
-       "3i": {"left": {"via": "1o", "out": "51o"}, "straight": {"via": "4o", "out": "54o"}, "right": {"via": "2o", "out": "52o"}},
-       "4i": {"left": {"via": "2o", "out": "52o"}, "straight": {"via": "3o", "out": "53o"}, "right": {"via": "1o", "out": "51o"}}
-     },
-     "_movement_map_provenance": "CONFIRMED from the actual network (1o->51o, 2o->52o, 3o->53o, 4o->54o intermediate structure supplied directly). The terminal-edge assignment per movement matches the prior inferred mapping exactly; the previously-missing piece was the intermediate 'via' edge, now included. Routes are generated as the full 3-edge chain [in_edge, via, out] -- a direct 2-edge path is no longer used as the default.",
- 
-     "route_edge_override": null,
-     "_route_edge_override_note": "No longer the primary routing mechanism (it was, when the real topology was unknown). Kept only as an escape hatch for future network changes: {\"in_edge\": {\"movement\": [\"edge1\", \"edge2\", ...]}} overrides the canonical movement_map chain for that specific (in_edge, movement) pair."
-   },
- 
-   "approach_name_to_edge": {"north": "4i", "south": "3i", "east": "2i", "west": "1i"},
-   "_approach_name_mapping_provenance": "CORRECTED from real network directions (1i=WEST, 2i=EAST, 3i=SOUTH, 4i=NORTH). Previous config (v0.1.0) had this backwards (north->1i etc.), which was an unverified assumption -- flagged as such at the time. Every non-balanced approach_pattern in a scenario generated under v0.1.0 allocated demand to the wrong physical edge relative to its semantic label.",
- 
-   "_signal_reference": {
-     "_purpose": "INFORMATIONAL ONLY. Not read by scenario_builder.py -- the scenario generator never touches signal phases. Captured here for the future normal_controller-compatibility and ASTRID-controller work.",
-     "tls_id": "0",
-     "phase_states": {
-       "0": "GGrrrrGGrrrr",
-       "1": "yyrrrryyrrrr",
-       "2": "rrGrrrrrGrrr",
-       "3": "rryrrrrryrrr",
-       "4": "rrrGGrrrrGGr",
-       "5": "rrryyrrrryyr",
-       "6": "rrrrrGrrrrrG",
-       "7": "rrrrryrrrrry"
-     },
-     "_structural_analysis": "Green link groups: phase0={0,1,6,7} (4 links), phase2={2,8} (2 links), phase4={3,4,9,10} (4 links), phase6={5,11} (2 links). Consistent with a standard dual-ring layout: each opposing approach-pair gets a combined through+right phase (4 links = 2 through/right lanes x 2 approaches) then a protected-left phase (2 links = 1 left lane x 2 approaches).",
-     "_unresolved": "RESOLVED BY CROSS-REFERENCE, NOT independently verified against raw <connection> data. normal_controller.py's own comments state phase0/phase2 = EW, phase4/phase6 = NS. Combined with the confirmed compass mapping (1i=WEST, 2i=EAST, 3i=SOUTH, 4i=NORTH), this means phase0/phase2 serve 1i+2i and phase4/phase6 serve 3i+4i. Two independent sources now agree; no <connection>/linkIndex list has been supplied to prove it directly, so treat as high-confidence rather than certain."
-   },
- 
-   "_controller_compatibility": {
-     "_purpose": "normal_controller.py requires fields name, demand, demand_rate, approach_distribution (confirmed by reading its source). scenario_builder.py writes these as explicit alias fields on every scenario.json: name (= scenario_id), demand_rate (= demand_rate_veh_per_hour, the numeric value actually used in calculate_directional_demand), demand (= demand_class, e.g. 'HIGH' -- confirmed from source to be used only in a print label, never in a calculation, so a class string is correct here, not a duplicate number).",
-     "_approach_distribution_requirement": "normal_controller.py requires approach_distribution to contain exactly the keys north/south/east/west summing to 1.0 (tolerance 1e-5). This project's approach_patterns already produce exactly that shape -- no change needed there."
-   },
- 
-   "_webster_reference": {
-     "_purpose": "Constants mirrored from normal_controller.py, used ONLY to compute a scenario-design diagnostic (estimated Webster Y-ratio) so V0 scenario selection is grounded in the controller's own capacity model instead of an arbitrary multiplier heuristic. NOT used to alter scenario generation logic itself. Keep in sync manually if normal_controller.py's constants change.",
-     "saturation_flow_per_lane_veh_per_hour": 525.0,
-     "lanes_ns": 6.0,
-     "lanes_ew": 6.0,
-     "_lanes_cross_check": "6.0 = 2 opposing approaches x 3 lanes_per_approach, consistent with network.lanes_per_approach=3 above."
-   },
- 
-   "simulation": {
-     "begin_s": 0,
-     "end_s": 3600
-   },
- 
-   "vehicle_types": {
-     "bike": {"length": 1.50, "maxSpeed": 27.77, "accel": 3.5, "decel": 2.8},
-     "car":  {"length": 4.50, "maxSpeed": 25.00, "accel": 3.5, "decel": 2.8},
-     "hgv":  {"length": 10.21, "maxSpeed": 19.44, "accel": 2.5, "decel": 1.5},
-     "bus":  {"length": 11.54, "maxSpeed": 19.44, "accel": 1.2, "decel": 0.9}
-   },
- 
-   "baseline": {
-     "total_demand_veh_per_hour": 1600,
-     "composition": {"bike": 0.50, "car": 0.30, "hgv": 0.10, "bus": 0.10}
-   },
- 
-   "demand_bands": {
-     "VERY_LOW":  [0.40, 0.60],
-     "LOW":       [0.60, 0.85],
-     "MEDIUM":    [0.85, 1.15],
-     "HIGH":      [1.15, 1.50],
-     "VERY_HIGH": [1.50, 2.00]
-   },
-   "_demand_bands_note": "Multipliers of baseline total_demand_veh_per_hour=1600. Still PROVISIONAL -- unchanged by the routing/direction fix. Confirm/adjust once V0 scenarios are actually run through SUMO with correct routes.",
- 
-   "approach_patterns": {
-     "balanced":        {"north": 0.25, "south": 0.25, "east": 0.25, "west": 0.25},
-     "north_heavy":     {"north": 0.45, "south": 0.20, "east": 0.20, "west": 0.15},
-     "east_west_heavy": {"north": 0.15, "south": 0.15, "east": 0.35, "west": 0.35},
-     "single_heavy":    {"north": 0.55, "south": 0.15, "east": 0.15, "west": 0.15}
-   },
- 
-   "movement_patterns": {
-     "balanced":       {"left": 0.33, "straight": 0.34, "right": 0.33},
-     "straight_heavy": {"left": 0.20, "straight": 0.60, "right": 0.20},
-     "left_heavy":     {"left": 0.50, "straight": 0.30, "right": 0.20},
-     "right_heavy":    {"left": 0.20, "straight": 0.30, "right": 0.50}
-   },
-   "_movement_pattern_note": "V0 applies one movement_distribution identically across all four approaches. Per-approach movement heterogeneity remains a deliberately out-of-scope future extension.",
- 
-   "composition_patterns": {
-     "baseline_heterogeneous": {"bike": 0.50, "car": 0.30, "hgv": 0.10, "bus": 0.10},
-     "bike_heavy":             {"bike": 0.70, "car": 0.20, "hgv": 0.05, "bus": 0.05},
-     "car_heavy":              {"bike": 0.20, "car": 0.60, "hgv": 0.10, "bus": 0.10},
-     "hgv_heavy":              {"bike": 0.35, "car": 0.35, "hgv": 0.25, "bus": 0.05},
-     "bus_heavy":              {"bike": 0.35, "car": 0.35, "hgv": 0.10, "bus": 0.20}
-   },
- 
-   "arrival_patterns_implemented": ["constant", "burst"],
-   "arrival_patterns_planned": ["increasing", "decreasing", "platoon", "fluctuating"],
- 
-   "v0_design": {
-     "strategy": "hand_designed_edge_cases + stratified_categorical_scaffold + 1d_LHS_demand_sampling + seed_replication + explicit_ood_holdout",
-     "target_scenario_count": 12,
-     "hand_designed_edge_cases": 4,
-     "stratified_lhs_scenarios": 6,
-     "seed_replications": 1,
-     "ood_holdout": 1,
-     "base_seed": 1000
-   },
- 
-   "validation": {
-     "proportion_sum_tolerance": 1e-6,
-     "min_demand_veh_per_hour": 1
-   }
- }
+  "meta": {
+    "project": "ASTRID",
+    "config_version": "0.4.0",
+    "description": "V0 scenario-generation configuration. CAUSE-layer data only -- no traffic-state values (queue, density, flow, speed, shockwave) may ever be added here.",
+    "changelog": [
+      "0.2.0: corrected route structure to the real 3-edge in->via->out chain; corrected north/south/east/west -> edge mapping using the real network directions; added normal_controller.py compatibility aliases; added an informational (unused-by-generator) signal-phase reference block pending link-index resolution.",
+      "0.3.x: regime-stratified LHS scenario design (34 scenarios) -- SUPERSEDED, see 0.4.0.",
+      "0.4.0: replaced the regime-stratified LHS design entirely with a fixed set of exactly 12 hand-authored scenarios (8 development + 4 OOD), per explicit project requirement. Removed demand_bands range-widening that only existed to support LHS sampling (reverted to original values). Added approach_patterns.north_extreme and composition_patterns.heavy_vehicle_extreme, both explicitly OOD-only and deliberately more extreme than their development-scenario counterparts (north_heavy, hgv_heavy). Removed v0_design.regime_stratification (no longer applicable -- there is no regime-targeted sampling anymore). v0_design.target_scenario_count is now a literal, enforced 12."
+    ]
+  },
+
+  "network": {
+    "junction_id": "0",
+    "approaches": ["1i", "2i", "3i", "4i"],
+    "approach_compass_direction": {"1i": "WEST", "2i": "EAST", "3i": "SOUTH", "4i": "NORTH"},
+    "lanes_per_approach": 3,
+    "approach_length_m": 484.9,
+    "camera_range_m": 150.0,
+
+    "movement_map": {
+      "1i": {"left": {"via": "4o", "out": "54o"}, "straight": {"via": "2o", "out": "52o"}, "right": {"via": "3o", "out": "53o"}},
+      "2i": {"left": {"via": "3o", "out": "53o"}, "straight": {"via": "1o", "out": "51o"}, "right": {"via": "4o", "out": "54o"}},
+      "3i": {"left": {"via": "1o", "out": "51o"}, "straight": {"via": "4o", "out": "54o"}, "right": {"via": "2o", "out": "52o"}},
+      "4i": {"left": {"via": "2o", "out": "52o"}, "straight": {"via": "3o", "out": "53o"}, "right": {"via": "1o", "out": "51o"}}
+    },
+    "_movement_map_provenance": "CONFIRMED from the actual network (1o->51o, 2o->52o, 3o->53o, 4o->54o intermediate structure supplied directly). Routes are generated as the full 3-edge chain [in_edge, via, out].",
+
+    "route_edge_override": null,
+    "_route_edge_override_note": "Escape hatch only: {\"in_edge\": {\"movement\": [\"edge1\", \"edge2\", ...]}} overrides the canonical movement_map chain for that specific (in_edge, movement) pair."
+  },
+
+  "approach_name_to_edge": {"north": "4i", "south": "3i", "east": "2i", "west": "1i"},
+  "_approach_name_mapping_provenance": "CONFIRMED real network directions (1i=WEST, 2i=EAST, 3i=SOUTH, 4i=NORTH).",
+
+  "_signal_reference": {
+    "_purpose": "INFORMATIONAL ONLY. Not read by scenario_builder.py.",
+    "tls_id": "0",
+    "phase_states": {
+      "0": "GGrrrrGGrrrr",
+      "1": "yyrrrryyrrrr",
+      "2": "rrGrrrrrGrrr",
+      "3": "rryrrrrryrrr",
+      "4": "rrrGGrrrrGGr",
+      "5": "rrryyrrrryyr",
+      "6": "rrrrrGrrrrrG",
+      "7": "rrrrryrrrrry"
+    },
+    "_structural_analysis": "Green link groups: phase0={0,1,6,7}, phase2={2,8}, phase4={3,4,9,10}, phase6={5,11}. Standard dual-ring layout: through+right phase then protected-left phase per opposing approach-pair.",
+    "_unresolved": "Cross-referenced against normal_controller.py's own comments (phase0/phase2=EW, phase4/phase6=NS), not independently verified against raw <connection> data at config-authoring time. dataset/trajectory_utils.py's derive_phase_green_edges() derives this directly from sq.net.xml's <connection linkIndex=...> data at feature-build time and will warn loudly if it disagrees."
+  },
+
+  "_controller_compatibility": {
+    "_purpose": "normal_controller.py requires fields name, demand, demand_rate, approach_distribution. scenario_builder.py writes these as explicit alias fields on every scenario.json: name (= scenario_id), demand_rate (= demand_rate_veh_per_hour), demand (= demand_class, a print-only label in the controller).",
+    "_approach_distribution_requirement": "normal_controller.py requires approach_distribution to contain exactly the keys north/south/east/west summing to 1.0 (tolerance 1e-5)."
+  },
+
+  "_webster_reference": {
+    "_purpose": "Constants mirrored from normal_controller.py, used ONLY to compute an INFORMATIONAL Webster Y-ratio diagnostic per scenario (stored in scenario.json, printed in the generation report). Does NOT drive scenario generation or split assignment in this version -- v0.4.0 uses a fixed, hand-authored scenario set instead of regime-targeted sampling.",
+    "saturation_flow_per_lane_veh_per_hour": 525.0,
+    "lanes_ns": 6.0,
+    "lanes_ew": 6.0,
+    "_lanes_cross_check": "6.0 = 2 opposing approaches x 3 lanes_per_approach."
+  },
+
+  "simulation": {
+    "begin_s": 0,
+    "end_s": 3600
+  },
+
+  "vehicle_types": {
+    "bike": {"length": 1.50, "maxSpeed": 27.77, "accel": 3.5, "decel": 2.8},
+    "car":  {"length": 4.50, "maxSpeed": 25.00, "accel": 3.5, "decel": 2.8},
+    "hgv":  {"length": 10.21, "maxSpeed": 19.44, "accel": 2.5, "decel": 1.5},
+    "bus":  {"length": 11.54, "maxSpeed": 19.44, "accel": 1.2, "decel": 0.9}
+  },
+
+  "baseline": {
+    "total_demand_veh_per_hour": 1600,
+    "composition": {"bike": 0.50, "car": 0.30, "hgv": 0.10, "bus": 0.10}
+  },
+
+  "demand_bands": {
+    "VERY_LOW":  [0.40, 0.60],
+    "LOW":       [0.60, 0.85],
+    "MEDIUM":    [0.85, 1.15],
+    "HIGH":      [1.15, 1.50],
+    "VERY_HIGH": [1.50, 2.00]
+  },
+  "_demand_bands_note": "Multipliers of baseline total_demand_veh_per_hour=1600. Reverted to original (un-widened) values in v0.4.0 -- the earlier widening only existed to support Webster-Y regime-targeted LHS sampling, which no longer exists. Used here only to label demand_class informationally.",
+
+  "approach_patterns": {
+    "balanced":        {"north": 0.25, "south": 0.25, "east": 0.25, "west": 0.25},
+    "north_heavy":     {"north": 0.45, "south": 0.20, "east": 0.20, "west": 0.15},
+    "south_heavy":     {"north": 0.15, "south": 0.55, "east": 0.15, "west": 0.15},
+    "east_west_heavy": {"north": 0.15, "south": 0.15, "east": 0.35, "west": 0.35},
+    "single_heavy":    {"north": 0.55, "south": 0.15, "east": 0.15, "west": 0.15},
+    "north_extreme":   {"north": 0.70, "south": 0.10, "east": 0.10, "west": 0.10}
+  },
+  "_approach_patterns_note": "south_heavy added in v0.4.0 (needed for the south_heavy development scenario -- no prior pattern was direction-parametrized). north_extreme added in v0.4.0 for north_extreme_OOD ONLY: deliberately far more skewed than north_heavy (0.70 vs 0.45 on the dominant approach), so the OOD scenario is genuinely outside what north_heavy exposes during development, not a relabeled duplicate. Do not use north_extreme for a development-split scenario.",
+
+  "movement_patterns": {
+    "balanced":       {"left": 0.33, "straight": 0.34, "right": 0.33},
+    "straight_heavy": {"left": 0.20, "straight": 0.60, "right": 0.20},
+    "left_heavy":     {"left": 0.50, "straight": 0.30, "right": 0.20},
+    "right_heavy":    {"left": 0.20, "straight": 0.30, "right": 0.50}
+  },
+  "_movement_pattern_note": "V0 applies one movement_distribution identically across all four approaches.",
+
+  "composition_patterns": {
+    "baseline_heterogeneous": {"bike": 0.50, "car": 0.30, "hgv": 0.10, "bus": 0.10},
+    "bike_heavy":             {"bike": 0.70, "car": 0.20, "hgv": 0.05, "bus": 0.05},
+    "car_heavy":              {"bike": 0.20, "car": 0.60, "hgv": 0.10, "bus": 0.10},
+    "hgv_heavy":              {"bike": 0.35, "car": 0.35, "hgv": 0.25, "bus": 0.05},
+    "bus_heavy":              {"bike": 0.35, "car": 0.35, "hgv": 0.10, "bus": 0.20},
+    "heavy_vehicle_extreme":  {"bike": 0.15, "car": 0.25, "hgv": 0.40, "bus": 0.20}
+  },
+  "_composition_patterns_note": "heavy_vehicle_extreme added in v0.4.0 for heavy_vehicle_OOD ONLY: 60% heavy vehicles (hgv+bus) vs hgv_heavy's 30% (hgv+bus) and baseline's 20% -- deliberately well outside the development-scenario range, not a relabeled duplicate of hgv_heavy. Do not use heavy_vehicle_extreme for a development-split scenario.",
+
+  "arrival_patterns_implemented": ["constant", "burst"],
+  "arrival_patterns_planned": ["increasing", "decreasing", "platoon", "fluctuating"],
+
+  "v0_design": {
+    "strategy": "fixed_hand_authored_12_scenario_set (8 development + 4 OOD) -- see EXPERIMENT_DESIGN.md / scenario_builder.py's SCENARIO_DEFINITIONS",
+    "target_scenario_count": 12,
+    "development_scenario_count": 8,
+    "ood_scenario_count": 4,
+    "base_seed": 1000
+  },
+  "_v0_design_note": "v0.4.0: no LHS sampling, no regime stratification, no seed replication, no hand-designed-edge-case phase -- the entire scenario set is the fixed SCENARIO_DEFINITIONS list in scenario_builder.py. target_scenario_count/development_scenario_count/ood_scenario_count are enforced exactly (12/8/4), not just informational.",
+
+  "validation": {
+    "proportion_sum_tolerance": 1e-6,
+    "min_demand_veh_per_hour": 1
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "scenario_id": "scenario_normal_balanced",
+  "seed": 1001,
+  "split": "train",
+  "design_method": "development",
+  "demand_class": "MEDIUM",
+  "demand_rate_veh_per_hour": 1600.0,
+  "approach_pattern": "balanced",
+  "approach_distribution": {
+    "north": 0.25,
+    "south": 0.25,
+    "east": 0.25,
+    "west": 0.25
+  },
+  "movement_pattern": "balanced",
+  "movement_distribution": {
+    "left": 0.33,
+    "straight": 0.34,
+    "right": 0.33
+  },
+  "composition_pattern": "baseline_heterogeneous",
+  "vehicle_composition": {
+    "bike": 0.5,
+    "car": 0.3,
+    "hgv": 0.1,
+    "bus": 0.1
+  },
+  "arrival_pattern": "constant",
+  "simulation_begin": 0,
+  "simulation_end": 3600,
+  "camera_range_m": 150.0,
+  "expected_regime_hint": "likely free-flow to moderate (Baseline reference scenario: normal dema)",
+  "webster_regime": "undersaturated",
+  "notes": "Baseline reference scenario: normal demand, balanced approaches, normal composition, steady arrivals.",
+  "name": "scenario_normal_balanced",
+  "demand": "MEDIUM",
+  "demand_rate": 1600.0,
+  "_demand_allocation_diagnostics": {
+    "requested_total_veh_per_hour": 1600.0,
+    "allocated_total_veh_per_hour": 1600.0,
+    "veh_per_hour_difference": 0.0,
+    "requested_vehicle_count_over_window": 1600,
+    "expected_vehicle_count_over_window": 1600
+  },
+  "_od_diagnostics": {
+    "4i[left]->2o->52o": 132.0,
+    "4i[straight]->3o->53o": 136.0,
+    "4i[right]->1o->51o": 132.0,
+    "3i[left]->1o->51o": 132.0,
+    "3i[straight]->4o->54o": 136.0,
+    "3i[right]->2o->52o": 132.0,
+    "2i[left]->3o->53o": 132.0,
+    "2i[straight]->1o->51o": 136.0,
+    "2i[right]->4o->54o": 132.0,
+    "1i[left]->4o->54o": 132.0,
+    "1i[straight]->2o->52o": 136.0,
+    "1i[right]->3o->53o": 132.0
+  },
+  "_webster_diagnostic": {
+    "ns_demand_veh_per_hour": 800.0,
+    "ew_demand_veh_per_hour": 800.0,
+    "y_ns": 0.254,
+    "y_ew": 0.254,
+    "Y": 0.508,
+    "regime": "undersaturated",
+    "_caveat": "Informational diagnostic only in v0.4.0 -- does not drive scenario generation or split assignment. Aggregate NS/EW capacity ratio only; ignores per-movement capacity, stochastic arrival variance, and signal cycling detail."
+  }
+}

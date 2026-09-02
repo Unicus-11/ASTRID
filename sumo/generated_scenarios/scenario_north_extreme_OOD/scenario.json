@@ -1,0 +1,68 @@
+{
+  "scenario_id": "scenario_north_extreme_OOD",
+  "seed": 1010,
+  "split": "ood",
+  "design_method": "ood",
+  "demand_class": "MEDIUM",
+  "demand_rate_veh_per_hour": 1600.0,
+  "approach_pattern": "north_extreme",
+  "approach_distribution": {
+    "north": 0.7,
+    "south": 0.1,
+    "east": 0.1,
+    "west": 0.1
+  },
+  "movement_pattern": "balanced",
+  "movement_distribution": {
+    "left": 0.33,
+    "straight": 0.34,
+    "right": 0.33
+  },
+  "composition_pattern": "baseline_heterogeneous",
+  "vehicle_composition": {
+    "bike": 0.5,
+    "car": 0.3,
+    "hgv": 0.1,
+    "bus": 0.1
+  },
+  "arrival_pattern": "constant",
+  "simulation_begin": 0,
+  "simulation_end": 3600,
+  "camera_range_m": 150.0,
+  "expected_regime_hint": "likely free-flow to moderate (Extremely imbalanced directional demand )",
+  "webster_regime": "undersaturated",
+  "notes": "Extremely imbalanced directional demand (north 70%) -- much more extreme than north_heavy (45%). Total demand held equal to north_heavy so the comparison isolates approach-imbalance, not demand level.",
+  "name": "scenario_north_extreme_OOD",
+  "demand": "MEDIUM",
+  "demand_rate": 1600.0,
+  "_demand_allocation_diagnostics": {
+    "requested_total_veh_per_hour": 1600.0,
+    "allocated_total_veh_per_hour": 1600.0,
+    "veh_per_hour_difference": 0.0,
+    "requested_vehicle_count_over_window": 1600,
+    "expected_vehicle_count_over_window": 1600
+  },
+  "_od_diagnostics": {
+    "4i[left]->2o->52o": 369.6,
+    "4i[straight]->3o->53o": 380.8,
+    "4i[right]->1o->51o": 369.6,
+    "3i[left]->1o->51o": 52.8,
+    "3i[straight]->4o->54o": 54.4,
+    "3i[right]->2o->52o": 52.8,
+    "2i[left]->3o->53o": 52.8,
+    "2i[straight]->1o->51o": 54.4,
+    "2i[right]->4o->54o": 52.8,
+    "1i[left]->4o->54o": 52.8,
+    "1i[straight]->2o->52o": 54.4,
+    "1i[right]->3o->53o": 52.8
+  },
+  "_webster_diagnostic": {
+    "ns_demand_veh_per_hour": 1280.0,
+    "ew_demand_veh_per_hour": 320.0,
+    "y_ns": 0.406,
+    "y_ew": 0.102,
+    "Y": 0.508,
+    "regime": "undersaturated",
+    "_caveat": "Informational diagnostic only in v0.4.0 -- does not drive scenario generation or split assignment. Aggregate NS/EW capacity ratio only; ignores per-movement capacity, stochastic arrival variance, and signal cycling detail."
+  }
+}
