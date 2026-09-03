@@ -1,0 +1,155 @@
+{
+  "layer": "layer2",
+  "timestamp": {
+    "kind": "index"
+  },
+  "approach_edge": {
+    "kind": "index"
+  },
+  "camera_range_m": {
+    "kind": "observed",
+    "source": "camera",
+    "note": "fixed network property, carried through for downstream use"
+  },
+  "visible_vehicle_count": {
+    "kind": "observed",
+    "source": "camera"
+  },
+  "visible_mean_speed_mps": {
+    "kind": "observed",
+    "source": "camera"
+  },
+  "visible_queue_count": {
+    "kind": "observed",
+    "source": "camera"
+  },
+  "visible_queue_length_m": {
+    "kind": "observed",
+    "source": "camera",
+    "note": "furthest queued vehicle VISIBLE to the camera -- never the true total queue length"
+  },
+  "visible_occupancy_fraction": {
+    "kind": "derived",
+    "source": "camera",
+    "note": "fraction of the camera's OWN 150m range the visible queue fills -- not fraction of true queue"
+  },
+  "queue_reaches_camera_edge": {
+    "kind": "observed",
+    "source": "camera",
+    "note": "BOUNDARY/CENSORING indicator: True means the visible queue reaches ~the camera's edge, which does NOT mean the true queue equals camera_range_m."
+  },
+  "visible_queue_length_m_change_30s": {
+    "kind": "derived",
+    "source": "camera history (past only)"
+  },
+  "visible_mean_speed_mps_change_30s": {
+    "kind": "derived",
+    "source": "camera history (past only)"
+  },
+  "probe_count": {
+    "kind": "observed",
+    "source": "gps"
+  },
+  "probe_mean_speed_mps": {
+    "kind": "observed",
+    "source": "gps"
+  },
+  "probe_min_distance_to_stopline_m": {
+    "kind": "observed",
+    "source": "gps"
+  },
+  "probe_max_distance_to_stopline_m": {
+    "kind": "observed",
+    "source": "gps",
+    "note": "a real probe sighting; may exceed camera_range_m by design -- GPS is not range-limited"
+  },
+  "probe_count_change_30s": {
+    "kind": "derived",
+    "source": "gps history (past only)"
+  },
+  "probe_max_distance_to_stopline_m_change_30s": {
+    "kind": "derived",
+    "source": "gps history (past only)"
+  },
+  "current_phase": {
+    "kind": "observed",
+    "source": "signal controller"
+  },
+  "phase_elapsed_s": {
+    "kind": "observed",
+    "source": "signal controller"
+  },
+  "is_green_for_approach": {
+    "kind": "derived",
+    "note": "inherits the not-independently-verified phase-to-approach mapping caveat"
+  },
+  "red_duration_s": {
+    "kind": "derived",
+    "source": "signal controller (consecutive-red streak)"
+  },
+  "estimated_density_k_veh_per_km": {
+    "kind": "physics-derived",
+    "source": "LW (1955) eq (2), adapted",
+    "note": "OBSERVED-REGION, MIXED-REGIME density (may include both free-flow and queued vehicles simultaneously) -- not true total-link density"
+  },
+  "observed_flow_veh_per_hour": {
+    "kind": "physics-derived",
+    "source": "LW (1955) eq (3) identity q=k*v",
+    "note": "an AGGREGATE, mixed-regime flow, NOT the clean upstream arrival flow LW section 6's shock formula would require -- kept as a general traffic-state feature only"
+  },
+  "estimated_queue_front_propagation_m_per_s": {
+    "kind": "physics-derived (empirical)",
+    "source": "not paper-sourced -- direct kinematic measurement",
+    "note": "rate of change of visible_queue_length_m; positive = queue growing upstream. Valid ONLY while queue_reaches_camera_edge is False this interval; NA when censored"
+  },
+  "estimated_hidden_queue_extension_m": {
+    "kind": "physics-derived",
+    "source": "first-order held-rate extrapolation, inspired by LW (1955) eq (17)'s shock-position concept but not that exact solution",
+    "note": "FIRST-ORDER approximation only -- extrapolates the last pre-censoring propagation rate forward across red_duration_s while censored. A MODEL ESTIMATE, never a substitute for the true label"
+  },
+  "q_u_cheng_veh_per_hour": {
+    "kind": "physics-derived (Cheng et al. TRB 2010, Eq. 12)",
+    "source": "Cheng, Qin, Jin & Ran (TRB 2010), Eq.(12): q_u = k_j * L_CP2 / (T_CP2 - T_r)",
+    "note": "Upstream arrival-flow estimate from ONE probe's own Type II critical-point position (L_CP2) and timestamp (T_CP2), read directly from gps_p{TAG}_probe_trajectories.csv, using ASTRID's real signal-controller red-start time as T_r. Available on the grid from that CP's own timestamp onward within the same red-phase cycle only; NA before any probe has produced a resolvable Type II CP this cycle, or if no probe ever joins the queue that cycle (a real, expected outcome on ASTRID's low-demand/OOD/no-queue scenarios, not an error)."
+  },
+  "k_cp1_cheng_veh_per_km": {
+    "kind": "physics-derived (Cheng et al. TRB 2010, Eq. 9)",
+    "source": "Cheng, Qin, Jin & Ran (TRB 2010), Eq.(9): k_CP1 = k_j * (L_CP2 / L_CP1)",
+    "note": "Local density estimate from one probe's own Type I and Type II critical-point positions. NA whenever a Type I CP could not be resolved for that probe/cycle -- e.g. the probe entered the observation window already mid-deceleration, or no candidate CP passed the paper's own validation check (Methodology, Critical Points Filter step b). This is expected on some ASTRID probes/cycles and is left NA rather than approximated."
+  },
+  "max_queue_length_cheng_m": {
+    "kind": "physics-derived (Cheng et al. TRB 2010, Eq. 11)",
+    "source": "Cheng, Qin, Jin & Ran (TRB 2010), Eq.(11): L_q = q_s*q_u*(T_g-T_r) / (k_j*(q_s-q_u))",
+    "note": "Maximum-queue-length-in-cycle estimate; T_g taken as a probe's own Type III CP timestamp. Requires a configured Webster saturation-flow reference (q_s) -- NA for any scenario/edge without one, or where q_s <= q_u (physically invalid chord), or where no probe in that cycle produced a Type III CP (e.g. it never cleared the intersection within the observed window). Available on the grid from that probe's Type III CP timestamp onward within the same cycle only. This is Cheng et al.'s single-probe formula; where multiple probes resolve a CP in the same cycle, the most recently observed value is used -- this file does not implement Eq.(13)-(17)'s multi-CP piecewise weighting."
+  },
+  "cheng_t_cp2_s": {
+    "kind": "diagnostic (Cheng et al. TRB 2010, Type II CP)",
+    "source": "gps_p{TAG}_probe_trajectories.csv, via extract_critical_points()",
+    "note": "DIAGNOSTIC feature, not a Cheng equation output: the timestamp of the most recently resolved Type II CP (queue-joining point) on this edge/cycle. Useful for QA -- e.g. confirming Cheng CPs are actually being produced for a given scenario -- rather than for direct model consumption. Same causal availability as q_u_cheng_veh_per_hour."
+  },
+  "cheng_l_cp2_m": {
+    "kind": "diagnostic (Cheng et al. TRB 2010, Type II CP)",
+    "source": "gps_p{TAG}_probe_trajectories.csv, via extract_critical_points()",
+    "note": "DIAGNOSTIC feature: the Type II CP's own distance-to-stopline (L_CP2) that fed Eq.(9)/(12) above. Same causal availability as q_u_cheng_veh_per_hour."
+  },
+  "cheng_t_cp3_s": {
+    "kind": "diagnostic (Cheng et al. TRB 2010, Type III CP)",
+    "source": "gps_p{TAG}_probe_trajectories.csv, via extract_critical_points()",
+    "note": "DIAGNOSTIC feature: the timestamp of the most recently resolved Type III CP (queue-discharge acceleration point) on this edge/cycle -- the T_g used by Eq.(11) above. NA whenever no probe has produced a Type III CP yet this cycle. Same causal availability as max_queue_length_cheng_m (available from T_CP3 onward, never earlier)."
+  },
+  "_removed_features": {
+    "visible_{vehicle_type}_frac": "camera_simulator.py does not report vehicle-type composition.",
+    "entry_flow_veh_per_hour / discharge_flow_veh_per_hour": "were per-vehicle boundary-crossing counts (LW eq 1, q=n/tau); not producible from the camera's 5s snapshot output.",
+    "estimated_shockwave_w_bf_m_per_s": "REMOVED in v0.4: computed flux from the camera's whole visible region, which mixes free-flow and queued vehicles and is not the clean upstream state LW section 6's red-signal shock formula requires. Replaced by estimated_queue_front_propagation_m_per_s."
+  },
+  "_unimplemented_paper_methods": {
+    "Richards (1956)": "full text not accessible (paywalled); no equation used.",
+    "Cheng et al. (2012 JITS) Eq.(4)-(8)": "flux-chord shockwave/discharge speed -- not implemented; ASTRID's empirical estimated_queue_front_propagation_m_per_s covers the analogous role instead.",
+    "Cheng et al. (2012 JITS) Eq.(13)-(17)": "initial-queue detection and n-CP piecewise queue-growth weighting across multiple Type II CPs in one cycle -- not implemented; max_queue_length_cheng_m uses at most one (the most recent) probe's Type II/III CP per cycle.",
+    "Rempe, Kessler & Bogenberger (2017)": "full text not accessible (paywalled); no equation used.",
+    "Kumari, Bhavya, Reddy, Gopi & Lalitha (2025, ICSCN)": "full text/abstract not accessible; no concept used."
+  },
+  "_labels_file_note": "true_queue_length_m / true_queue_beyond_camera / true_queue_length_future_m live only in labels_{layer}.csv, never in features_{layer}.csv. The feature-building code path never opens ground_truth/ or raw_output/vehicle_trajectories.csv. gps_p{TAG}_probe_trajectories.csv IS read (Cheng/trajectory section only) but is itself a GPS observation, not ground truth.",
+  "_k_jam_veh_per_km": 147.6,
+  "_k_jam_assumption": "effective_gap_m=2.5 -- a project assumption, NOT confirmed against this scenario's actual vType/car-following configuration, and not sourced from any paper."
+}

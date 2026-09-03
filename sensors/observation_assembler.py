@@ -9,18 +9,14 @@ RESPONSIBILITY:
     (sensors/gps_simulator.py) -- into ONE aligned observation table, keyed
     on (timestamp, approach_edge).
 
-    This is a pure data-alignment layer. It does NOT compute any derived
-    signal (queue growth rate, shockwave speed, jam density, hidden-queue
-    estimate, or any other physics-informed feature) and does NOT read or
-    fill anything from dataset/ground_truth.py. Ground truth stays the
-    target/reference for a later stage, never an input into the sensor
-    observation table. Feature engineering is a separate, later module
-    (feature_builder.py), deliberately not built here.
+    The GPS simulator now produces one underlying 1-second, per-probe
+    trajectory stream in gps_p{TAG}_probe_trajectories.csv. The
+    gps_p{TAG}_timeseries.csv file used here is only a downstream 5-second
+    aggregation of that same probe trajectory stream, retained for the
+    observation-level feature pipeline.
 
-    Camera and GPS quantities are kept separate on purpose:
-        visible_vehicle_count  -- ALL vehicles within camera_range_m
-        probe_count             -- only the selected penetration-rate subset
-    These are never merged into a single generic "vehicle_count".
+    This module does NOT consume or modify the individual probe trajectories.
+    Cheng-style trajectory analysis is handled later by feature engineering.
 
 v0.2 changes (this revision):
     - Default --penetration changed from 0.10 to 0.11 -- the project's
@@ -50,6 +46,11 @@ gps_simulator.py first):
     sumo/generated_scenarios/<scenario_id>/scenario.json
     sumo/generated_scenarios/<scenario_id>/observations/camera_timeseries.csv
     sumo/generated_scenarios/<scenario_id>/observations/gps_p{TAG}_timeseries.csv
+
+    Note:
+        gps_p{TAG}_probe_trajectories.csv is also produced by
+        gps_simulator.py, but is intentionally NOT consumed by this module.
+        It is reserved for later Cheng-style trajectory feature extraction.
 
 Writes:
     sumo/generated_scenarios/<scenario_id>/observations/assembled_observations_p{TAG}.csv
@@ -319,7 +320,7 @@ def process_scenario(scenario_dir: Path, cfg: dict, penetration_rate: float) -> 
     merged["split"] = scenario.get("split", "")
     merged["design_method"] = scenario.get("design_method", "")
     
-        # Metadata only: records the GPS sensing condition used for this
+    # Metadata only: records the GPS sensing condition used for this
     # observation dataset. It must NOT be passed to the ML model as a
     # predictive feature unless we intentionally design an experiment where
     # the model is allowed to know the GPS penetration rate.
