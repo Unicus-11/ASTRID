@@ -336,5 +336,7 @@
     "f_4i_straight_1.77"
   ],
   "probe_observed_rate_in_window": 1.0,
-  "_note": "probe_vehicle_ids is the COMPLETE set of GPS-equipped vehicles for this scenario, selected from every vehicle_id in the raw trajectory file -- not just vehicle_ids appearing in the observation window. A probe absent from probe_vehicle_ids_observed_in_window is still a designated probe; it simply had no row to report during this scenario's 0-simulation_end viewing window."
+  "probe_trajectory_rows": 27238,
+  "probe_trajectory_sampling_interval_s": 1,
+  "_note": "probe_vehicle_ids is the COMPLETE set of GPS-equipped vehicles for this scenario, selected from every vehicle_id in the raw trajectory file -- not just vehicle_ids appearing in the observation window. A probe absent from probe_vehicle_ids_observed_in_window is still a designated probe; it simply had no row at all (on any edge) during this scenario's simulation_begin-simulation_end viewing window. gps_{tag}_probe_trajectories.csv is the single underlying GPS observation -- every row (any edge) a selected probe has in the window, at native 1-second resolution. gps_{tag}_timeseries.csv is a DOWNSTREAM AGGREGATION of that same per-probe trajectory (approach-edge rows only, onto the shared 5s observation grid) -- kept only because the current Layer 2 pipeline already consumes aggregate GPS statistics, not a second, independent sensor."
 }

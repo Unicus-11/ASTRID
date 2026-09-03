@@ -1,7 +1,7 @@
 """
 gps_simulator.py
 ====================
-ASTRID Prototype -- GPS / Probe Vehicle Sensor Simulator  (v0.2)
+ASTRID Prototype -- GPS / Probe Vehicle Sensor Simulator  (v0.6)
 
 RESPONSIBILITY:
     Simulate a sparse fraction of vehicles being GPS-equipped probes.
@@ -17,122 +17,102 @@ RESPONSIBILITY:
     vehicle population, and never any ground-truth queue/density/flow
     label. See ANTI-LEAKAGE below.
 
-v0.2 changes (this revision -- aligning with the current project):
-    - BUG FIX: the previous implementation filtered on a column named
-      "is_on_approach", which does not exist in the current raw schema.
-      The canonical column (written by run_scenarios.py, defined in
-      trajectory_utils.py) is "is_approach_edge". Using the wrong name
-      meant this filter would have raised a KeyError against current
-      data.
-    - Distance-to-stopline now uses trajectory_utils.resolve_distance_to_stopline(),
-      which prefers the raw per-row "distance_from_stop_line_m" column
-      written directly by run_scenarios.py (from SUMO's own lane
-      length/position at record time) and falls back to the older
-      network-metadata calculation only where that raw value is
-      missing. The previous implementation called
-      attach_distance_to_stopline() directly, which ignores the raw
-      column entirely and always recomputes from sq.net.xml. This
-      matches the same raw-preferred resolution ground_truth.py now
-      uses, so GPS and ground truth agree on what "distance to
-      stopline" means for a given row.
-    - Removed the flag_queued() call and any notion of "queued" from
-      this script. Queue determination is a shared *judgment* (a speed
-      + duration threshold) applied identically for ground truth --
-      computing it here added an unused, unrequested field and risked
-      quietly turning a raw GPS ping into a queue-membership judgment,
-      which belongs to feature engineering, not the sensor layer. GPS
-      now reports only position/speed facts about probes.
-    - Added an explicit observation-window filter
-      (restrict_to_observation_window) mirroring ground_truth.py's own
-      defensive filter: trajectory rows are filtered to
-      [scenario.simulation_begin, scenario.simulation_end] by
-      timestamp before anything else happens, so a future change to
-      what vehicle_trajectories.csv contains (e.g. if a clearance
-      period were ever saved) can never leak into GPS observations.
-    - No more hardcoded "scenario_0001"-style scenario naming in
-      docstrings/examples -- the current project uses 12 fixed named
-      scenarios (scenario_normal_balanced, scenario_low_demand, ...).
-      The code itself was already naming-agnostic (glob scenario_*),
-      so no logic changes were needed there.
-    - Corrected this docstring's "Reads" section: there is no
-      lane_metadata.json file. Lane geometry comes from
-      trajectory_utils.load_lane_metadata(), which parses
-      sq.net.xml directly (used only as the fallback path inside
-      resolve_distance_to_stopline).
-    - Added explicit, itemized validation at every stage (schema,
-      penetration rate, probe-subset containment, timestamp window,
-      expected approach edges, determinism, ground-truth non-leakage,
-      empty-probe safety, realized-vs-requested-rate reporting) instead
-      of relying on things happening to work. See validate_* functions.
-    - Restructured into the requested function shape: load config /
-      load scenario metadata / deterministic probe selection / validate
-      raw trajectory schema / build GPS observations / validate GPS
-      observations / write outputs / process one scenario / find
-      scenarios / main CLI.
+v0.2-v0.4 changes: see prior revisions (bug fixes to the approach-edge
+column name, distance-to-stopline resolution, probe-population ordering,
+and exact-count top-K probe selection).
 
-v0.3 changes (this revision -- probe-population ordering fix):
-    - BUG FIX: probe selection previously ran AFTER
-      restrict_to_observation_window(), so the penetration-rate
-      denominator was "vehicles with at least one row inside
-      0-simulation_end" rather than "vehicles in this scenario."
-      penetration_rate is a property of the scenario's vehicle
-      population, not of the viewing window, so process_scenario() now
-      computes all_vehicle_ids from the full raw trajectory file BEFORE
-      restrict_to_observation_window() runs, and only THEN filters to
-      the window before building observations. A probe that doesn't
-      appear inside the window is still counted as a designated probe
-      -- it just has nothing to report -- and that "designated vs.
-      actually observed" distinction is now reported separately in both
-      the console summary and gps_p{NN}_probe_ids.json
-      (probe_vehicle_count vs. probe_vehicle_count_observed_in_window)
-      instead of being collapsed into one number.
-    - Note on scope: vehicle_trajectories.csv (as currently written by
-      run_scenarios.py) is the only file with concrete, non-invented
-      vehicle_id values -- scenario_builder.py never assigns them (SUMO
-      generates IDs from flow.xml at simulation runtime), and
-      run_scenarios.py's realization_audit.json records population
-      COUNTS (loaded/departed/pending) but not the underlying ID lists.
-      So this fix corrects the ordering for every vehicle that has at
-      least one row anywhere in the trajectory file; it cannot recover
-      probe status for a vehicle that has zero rows in the file at all
-      (e.g. one SUMO never managed to insert onto the network) without
-      inventing an ID that was never recorded anywhere.
+v0.5 changes: introduced a per-probe, per-second trajectory output
+alongside the 5s aggregate, for Cheng et al.-style critical-point
+analysis. That first version built the per-probe table from the SAME
+approach-edge-only dataframe used for the 5s aggregate, which is exactly
+what v0.6 below corrects.
 
-v0.4 changes (this revision -- exact-count probe selection):
-    - BUG FIX: select_probe_vehicles() previously flipped an independent
-      per-vehicle coin (probe if hash(seed, vehicle_id) < penetration_rate).
-      That gives the CORRECT rate in expectation, but for any one scenario
-      the realized count is a binomial draw around N * penetration_rate,
-      not exactly N * penetration_rate -- e.g. 1600 vehicles at 11% came
-      out to 164, not 176, purely from per-vehicle sampling variance
-      (std-dev ~= sqrt(1600 * 0.11 * 0.89) ~= 12.5, so 164 is well within
-      normal range, just not what a fixed "11% penetration" experiment
-      condition should mean). Fixed by ranking every vehicle_id by a
-      deterministic score and taking the exact top
-      round(len(vehicle_ids) * penetration_rate). This guarantees the
-      probe count for a scenario is always exactly round(N * rate), not
-      an expected value with sampling noise.
-    - Nice side effect: because the per-vehicle score no longer depends
-      on penetration_rate itself (only on seed + vehicle_id), the probe
-      sets are NESTED/monotonic across rates for a fixed scenario+seed --
-      the 5% probe set is always a subset of the 11% probe set, which is
-      a subset of the 20% probe set, etc. Not required by this fix, just
-      a useful property if penetration is later swept.
-    - TRADE-OFF, stated explicitly: is_probe_vehicle() (a per-vehicle
-      boolean, computable in isolation) is removed. Because "is this
-      vehicle in the top K?" depends on every other vehicle's score, a
-      single vehicle's probe status can no longer be determined without
-      the full population -- select_probe_vehicles() always receives the
-      complete vehicle_ids set already (see v0.3 above), so this does not
-      change any call site, but it does remove the standalone per-vehicle
-      helper. If anything outside this file imported is_probe_vehicle
-      directly, it will need to call select_probe_vehicles() instead.
+v0.6 changes (this revision -- there is only ONE underlying GPS
+simulation, not two):
+    v0.5's per-probe trajectory was built from probe_df, the
+    approach-edge-only rows used for the aggregate. That silently cut
+    every probe's trajectory off the moment it left the approach edge --
+    exactly the region (crossing the stop line, clearing the
+    intersection, accelerating away on the internal/outgoing edge) where
+    Cheng et al.'s Type II critical point is expected to sit. A probe's
+    trajectory would just vanish from the table mid-maneuver.
+
+    The corrected model is:
+
+        selected probes (deterministic, unchanged)
+                |
+                v
+        1-second, per-probe trajectory -- EVERY row belonging to a
+        selected probe inside the observation window, on ANY edge
+        (approach, internal, or outgoing) -- this is now the single
+        underlying GPS observation.
+                |
+                +--> aggregate the approach-edge rows to the shared 5s
+                |    grid --> gps_p{TAG}_timeseries.csv (UNCHANGED format,
+                |    UNCHANGED meaning -- observation_assembler.py and
+                |    Layer 2 keep reading it exactly as before)
+                |
+                +--> gps_p{TAG}_probe_trajectories.csv (full per-probe
+                     trajectory, all edges, native 1s resolution -- for
+                     Cheng et al.-style critical-point extraction only)
+
+    The 5-second aggregate is no longer built directly from raw
+    trajectory rows; it is now explicitly a downstream aggregation of
+    the same 1-second per-probe trajectory the Cheng-oriented output
+    also comes from -- one GPS simulation, two views of it, not two
+    separate sensors that happen to share a probe set.
+
+    Two field-level corrections that fall out of using the full,
+    un-filtered trajectory:
+
+    - edge_id vs. approach_edge are now genuinely different fields.
+      edge_id is simply whatever SUMO edge the probe is on at that
+      timestamp -- it changes as the probe moves from an approach edge,
+      through the internal junction edge, onto an outgoing edge.
+      approach_edge instead identifies WHICH of the four approach edges
+      this probe's intersection crossing belongs to: it is set to
+      edge_id while the probe is actually on an approach edge, and then
+      carried forward (forward-filled, per probe) onto that probe's
+      later internal/outgoing rows, so later processing can still
+      attribute a post-stop-line row to the correct approach. A probe
+      that never enters an approach edge during the observation window
+      keeps approach_edge as NaN for its entire trajectory -- this is
+      never fabricated.
+    - distance_to_stopline_m is only physically meaningful while a
+      probe is actually on an approach edge. trajectory_utils.py's
+      distance resolution fills a network-based default of 0.0 for
+      every other edge (that default exists for ITS OWN callers, e.g.
+      ground_truth.py, which only ever look at approach-edge rows
+      anyway). Left as 0.0 here it would misleadingly read as "sitting
+      at the stop line" for a probe that is, say, three blocks past the
+      intersection. This module blanks it back to NaN for any row where
+      the probe is not on an approach edge, without touching
+      trajectory_utils.py itself.
+
+    Neither change alters probe selection, the 5s aggregate's schema,
+    or anything ground-truth-related.
+
+    Network-boundary note (documentation only -- no logic added here):
+    the simulated approach is roughly 483m long. A probe trajectory that
+    is still present at (or very near) that upstream boundary at the end
+    of the observation window may reflect a genuinely long queue, OR may
+    simply reflect that the queue outgrew the modeled network before the
+    window ended -- this module does not attempt to tell those apart. It
+    preserves the raw edge/position/timestamp information needed for a
+    later stage to make that distinction; it does not classify or label
+    it.
 
 ANTI-LEAKAGE RULE:
     This script never reads dataset/ground_truth.py's output and never
-    computes queue length, density, or flow. It derives GPS observations
-    only from raw_output/vehicle_trajectories.csv -- the same raw file
-    ground truth is built from, not ground truth itself.
+    computes queue length, density, or flow -- for the population OR for
+    an individual probe. It derives every GPS observation only from
+    raw_output/vehicle_trajectories.csv -- the same raw file ground
+    truth is built from, not ground truth itself. The full per-probe
+    trajectory added in v0.5/v0.6 reports only facts a real onboard
+    GPS/IMU device could contribute for its OWN vehicle (edge, lane,
+    distance to stop-bar while on an approach, speed, acceleration) --
+    never a queue length, density, or flow computed from the wider
+    vehicle population, and never a label of any kind.
 
 Reads (per scenario):
     sumo/generated_scenarios/<scenario_id>/scenario.json
@@ -141,7 +121,15 @@ Reads (per scenario):
 
 Writes (per scenario, per penetration rate):
     sumo/generated_scenarios/<scenario_id>/observations/gps_p{NN}_timeseries.csv
+        -- 5s population aggregate, approach-edge rows only, UNCHANGED
+        format -- now explicitly a downstream aggregation of the 1s
+        per-probe trajectory below, rather than an independent read of
+        the raw file.
     sumo/generated_scenarios/<scenario_id>/observations/gps_p{NN}_probe_ids.json
+    sumo/generated_scenarios/<scenario_id>/observations/gps_p{NN}_probe_trajectories.csv
+        -- the underlying 1-second per-probe trajectory: EVERY row (any
+        edge) belonging to a selected probe inside the observation
+        window. For Cheng et al.-style critical-point analysis only.
 
 Run:
     python sensors/gps_simulator.py --scenario scenario_normal_balanced --penetration 0.10
@@ -177,16 +165,34 @@ SCENARIO_CONFIG_FILE = SUMO_DIR / "scenario_config.json"
 # scenario's own seed elsewhere in the pipeline (SUMO's --seed, etc.).
 GPS_SEED_OFFSET = 5000
 
+# Documents the resolution of gps_p{TAG}_probe_trajectories.csv. NOT used
+# to resample anything: run_scenarios.py already records every active
+# vehicle every simulation step (step-length=1.0s), so the per-probe rows
+# pulled out of the raw trajectory data are already at this resolution --
+# this constant exists so feature_builder.py and any validation here can
+# assert against it explicitly rather than assuming it.
+PROBE_TRAJECTORY_SAMPLING_INTERVAL_S = 1
+
+# Columns written to gps_p{TAG}_probe_trajectories.csv -- the full,
+# un-filtered per-probe trajectory (any edge) at native 1-second
+# resolution. edge_id and approach_edge are deliberately separate fields
+# -- see the v0.6 note in the module docstring for what each one means.
+PROBE_TRAJECTORY_COLUMNS = [
+    "timestamp", "probe_id", "edge_id", "approach_edge", "lane_id",
+    "speed_mps", "acceleration_mps2", "distance_to_stopline_m",
+]
+
 # Fields this sensor is allowed to write. Any of these names appearing
 # would mean a ground-truth label leaked into the observation -- used as
-# a regression guard in validate_gps_observations().
+# a regression guard in validate_gps_observations() /
+# validate_probe_trajectories().
 FORBIDDEN_GROUND_TRUTH_COLUMNS = {
     "queue_length_m", "queue_count", "queue_beyond_camera",
     "density_veh_per_km", "flow_veh_per_hour", "vehicle_count",
     "mean_speed_mps",  # ground truth's per-approach mean; GPS has its own probe_mean_speed_mps
 }
 
-REQUIRED_RAW_COLUMNS = ["timestamp", "vehicle_id", "edge_id", "speed_mps"]
+REQUIRED_RAW_COLUMNS = ["timestamp", "vehicle_id", "edge_id", "lane_id", "speed_mps"]
 
 
 # ============================================================================
@@ -239,6 +245,12 @@ def validate_raw_trajectory_schema(df: pd.DataFrame) -> None:
             "Raw trajectory data has neither a usable 'distance_from_stop_line_m' column "
             "nor the ('lane_id', 'lane_position_m') columns needed to derive it as a fallback."
         )
+    if "acceleration_mps2" not in df.columns:
+        raise ValueError(
+            "Raw trajectory data is missing 'acceleration_mps2' -- required for the per-probe "
+            "trajectory output (gps_p{TAG}_probe_trajectories.csv), which Cheng et al.-style "
+            "critical-point detection needs."
+        )
 
 
 def validate_probe_selection(probe_ids: Set[str], all_vehicle_ids: Set[str], seed: int,
@@ -247,7 +259,7 @@ def validate_probe_selection(probe_ids: Set[str], all_vehicle_ids: Set[str], see
     round(len(all_vehicle_ids) * penetration_rate) in count (not merely
     close to it), and probe selection must be reproducible (same seed +
     vehicle_id set + rate -> same result, independent of dataframe order
-    -- verified here by recomputing)."""
+    -- verified here by recomputing). UNCHANGED from prior revisions."""
     if not probe_ids.issubset(all_vehicle_ids):
         raise ValueError("Probe IDs are not a subset of the scenario's actual vehicle IDs.")
 
@@ -266,17 +278,82 @@ def validate_probe_selection(probe_ids: Set[str], all_vehicle_ids: Set[str], see
         )
 
 
-def validate_gps_observations(
-    gps_df: pd.DataFrame,
-    probe_df: pd.DataFrame,
+def validate_probe_trajectories(
+    traj_df: pd.DataFrame,
     probe_ids: Set[str],
     approach_edges: List[str],
     sim_begin: int,
     sim_end: int,
 ) -> None:
-    """Post-construction checks on the GPS output itself."""
-    # No non-probe vehicle contributed to the per-row data the output was aggregated from.
-    contributing_ids = set(probe_df["vehicle_id"].unique())
+    """Post-construction checks on the full per-probe trajectory output
+    (any edge, native 1s resolution). An empty result (e.g. very low
+    penetration with few vehicles) is a valid, safe outcome -- not an
+    error."""
+    if traj_df.empty:
+        return
+
+    missing = [c for c in PROBE_TRAJECTORY_COLUMNS if c not in traj_df.columns]
+    if missing:
+        raise ValueError(f"Probe trajectory table is missing required column(s): {missing}")
+
+    contributing_ids = set(traj_df["probe_id"].unique())
+    if not contributing_ids.issubset(probe_ids):
+        raise ValueError("Probe trajectory table was built from vehicle(s) outside the selected probe set.")
+
+    out_of_window = traj_df[(traj_df["timestamp"] < sim_begin) | (traj_df["timestamp"] > sim_end)]
+    if not out_of_window.empty:
+        raise ValueError(
+            f"Probe trajectory table contains {len(out_of_window)} row(s) with timestamps outside "
+            f"[{sim_begin}, {sim_end}]."
+        )
+
+    # edge_id is intentionally UNRESTRICTED here -- a probe's full
+    # trajectory legitimately includes internal (":..." ) and outgoing
+    # edges, not just the four approach edges. Only approach_edge (when
+    # not NaN) must be one of the real approach edges.
+    observed_approaches = set(traj_df["approach_edge"].dropna().unique())
+    if not observed_approaches.issubset(set(approach_edges)):
+        raise ValueError(
+            f"Probe trajectory table has approach_edge value(s) {observed_approaches} outside "
+            f"expected {set(approach_edges)}."
+        )
+
+    leaked = FORBIDDEN_GROUND_TRUTH_COLUMNS.intersection(traj_df.columns)
+    if leaked:
+        raise ValueError(f"Probe trajectory table contains forbidden ground-truth-shaped column(s): {leaked}")
+
+    # Each probe's own timestamps must be strictly increasing within this
+    # table -- Cheng et al.'s method depends on being able to walk one
+    # vehicle's trajectory forward in time without duplicate/out-of-order
+    # rows. This does NOT require consecutive timestamps (a real gap in
+    # when a probe was recorded is preserved, never fabricated) -- only
+    # that recorded rows are in increasing order.
+    non_increasing = (
+        traj_df.sort_values(["probe_id", "timestamp"])
+        .groupby("probe_id")["timestamp"]
+        .apply(lambda s: bool((s.diff().dropna() <= 0).any()))
+    )
+    bad_probes = non_increasing[non_increasing].index.tolist()
+    if bad_probes:
+        raise ValueError(
+            f"Probe trajectory table has non-increasing timestamps for probe_id(s): {bad_probes}"
+        )
+
+
+def validate_gps_observations(
+    gps_df: pd.DataFrame,
+    aggregate_source_df: pd.DataFrame,
+    probe_ids: Set[str],
+    approach_edges: List[str],
+    sim_begin: int,
+    sim_end: int,
+) -> None:
+    """Post-construction checks on the 5s aggregate GPS output.
+    aggregate_source_df is the approach-edge subset of the per-probe
+    trajectory table that gps_df was aggregated FROM (see
+    build_gps_observations) -- kept for these cross-checks, same role
+    "probe_df" played in prior revisions."""
+    contributing_ids = set(aggregate_source_df["probe_id"].unique())
     if not contributing_ids.issubset(probe_ids):
         raise ValueError("GPS observation was built from vehicle(s) outside the selected probe set.")
 
@@ -285,7 +362,6 @@ def validate_gps_observations(
         # are a valid, safe outcome, not an error -- nothing further to check.
         return
 
-    # Timestamps must fall within the scenario's primary observation window.
     out_of_window = gps_df[(gps_df["timestamp"] < sim_begin) | (gps_df["timestamp"] > sim_end)]
     if not out_of_window.empty:
         raise ValueError(
@@ -293,7 +369,6 @@ def validate_gps_observations(
             f"[{sim_begin}, {sim_end}]."
         )
 
-    # Every expected approach edge must be represented (even with probe_count=0).
     observed_edges = set(gps_df["approach_edge"].unique())
     expected_edges = set(approach_edges)
     if observed_edges != expected_edges:
@@ -301,7 +376,6 @@ def validate_gps_observations(
             f"GPS observation approach edges {observed_edges} do not match expected {expected_edges}."
         )
 
-    # No ground-truth column names leaked into the output.
     leaked = FORBIDDEN_GROUND_TRUTH_COLUMNS.intersection(gps_df.columns)
     if leaked:
         raise ValueError(f"GPS observation contains forbidden ground-truth-shaped column(s): {leaked}")
@@ -310,6 +384,7 @@ def validate_gps_observations(
 # ============================================================================
 # Probe selection -- deterministic per (seed, vehicle_id) SCORE, then an
 # exact top-K cut, not an independent per-vehicle probability threshold.
+# UNCHANGED from prior revisions -- see module docstring point 8.
 # ============================================================================
 
 def _probe_score(vehicle_id: str, seed: int) -> float:
@@ -342,18 +417,88 @@ def select_probe_vehicles(vehicle_ids: Set[str], seed: int, penetration_rate: fl
 
 
 # ============================================================================
-# GPS observation: sparse by vehicle count, NOT range-limited
+# THE single underlying GPS observation: full per-probe trajectory,
+# any edge, native 1-second resolution.
 # ============================================================================
 
+
+
+# Cheng note:
+# The full per-probe trajectory is preserved across approach, internal,
+# and outgoing edges because Cheng's critical-point sequence may require
+# trajectory information on both sides of the stop line, especially for
+# confirming the post-green acceleration regime used to identify Type III.
+# Type II itself is the point where the probe slows and joins the queue.
+
+def build_probe_trajectories(probe_full_df: pd.DataFrame) -> pd.DataFrame:
+    """Build the underlying 1-second, per-probe GPS trajectory.
+
+    probe_full_df must already be restricted to (a) the observation
+    window and (b) the selected probe vehicles -- but, unlike prior
+    revisions, must NOT be pre-filtered to approach edges only. Every
+    row a selected probe has anywhere in the window (approach, internal
+    junction, or outgoing edge) is preserved, because Cheng et al.'s
+    Type II critical point can fall on either side of the stop line and
+    a trajectory that's cut off at the approach-edge boundary would
+    truncate exactly the region that matters.
+
+    Adds two derived fields on top of the raw per-row data:
+
+    - approach_edge: which of the four approach edges this probe's
+      current intersection crossing belongs to. Set to edge_id while the
+      probe is actually on an approach edge (using the canonical
+      is_approach_edge flag from trajectory_utils, not a recomputed
+      edge-id check), then forward-filled per probe so later
+      internal/outgoing rows are still attributable to that approach.
+      Never back-filled: rows recorded before a probe's first approach
+      entry (if any) correctly stay NaN, and a probe that never touches
+      an approach edge in this window keeps approach_edge as NaN for its
+      entire trajectory -- this is never fabricated.
+    - distance_to_stopline_m: only meaningful while the probe is
+      actually on an approach edge. trajectory_utils' resolution leaves
+      a network-based fallback of 0.0 on every other edge type (fine for
+      its other callers, which only ever look at approach-edge rows);
+      here that would misread as "at the stop line" for a probe that has
+      long since crossed it, so it is blanked to NaN for any row that is
+      not on an approach edge.
+    """
+    if probe_full_df.empty:
+        return pd.DataFrame(columns=PROBE_TRAJECTORY_COLUMNS)
+
+    df = probe_full_df.sort_values(["vehicle_id", "timestamp"]).copy()
+
+    is_approach = df[APPROACH_FLAG_COLUMN].astype(bool)
+
+    # approach_edge: edge_id where currently on an approach edge, else
+    # NaN, then carried forward per probe so post-stop-line rows still
+    # know which approach they belong to. groupby().ffill() only fills
+    # forward -- rows before a probe's first approach entry stay NaN.
+    df["approach_edge"] = df["edge_id"].where(is_approach)
+    df["approach_edge"] = df.groupby("vehicle_id")["approach_edge"].ffill()
+
+    # distance_to_stopline_m is physically meaningful only on an approach
+    # edge -- blank the network-fallback default everywhere else rather
+    # than let it read as "at the stop line".
+    df["distance_to_stopline_m"] = df["distance_to_stopline_m"].where(is_approach)
+
+    out = df.rename(columns={"vehicle_id": "probe_id"})[PROBE_TRAJECTORY_COLUMNS]
+    return out.sort_values(["probe_id", "timestamp"]).reset_index(drop=True)
+
+
 def build_gps_observations(
-    df: pd.DataFrame,
-    probe_ids: Set[str],
+    probe_trajectories_df: pd.DataFrame,
     approach_edges: List[str],
     sim_begin: int,
     sim_end: int,
 ) -> "tuple[pd.DataFrame, pd.DataFrame]":
-    """Aggregate raw probe rows into per-timestamp, per-approach GPS
-    observations.
+    """Aggregate the approach-edge rows of the underlying 1s per-probe
+    trajectory (built by build_probe_trajectories, above) onto the
+    SHARED 5-second observation grid (SAMPLING_INTERVAL_S) that
+    camera_timeseries.csv and observation_assembler.py's join both rely
+    on. This is now explicitly a DOWNSTREAM VIEW of the single per-probe
+    GPS trajectory, not an independent read of the raw file -- there is
+    one underlying GPS simulation, this is one of two ways it gets
+    consumed.
 
     Reports only facts a real GPS-equipped vehicle could contribute:
     that it was present on a given approach edge at a given time, its
@@ -361,18 +506,19 @@ def build_gps_observations(
     simply a probe far upstream -- this function does not infer, cap, or
     reinterpret that distance as a queue-length estimate; that
     interpretation (including the ~483m road length vs. ~150m camera
-    range distinction) belongs to later feature engineering.
+    range distinction) belongs to later feature engineering, not here.
 
-    Returns (gps_df, probe_df) -- probe_df (the filtered per-row probe
-    data used to build gps_df) is returned alongside for validation.
+    Returns (gps_df, aggregate_source_df) -- aggregate_source_df is the
+    approach-edge-only slice of probe_trajectories_df this was built
+    from, returned alongside purely for validation.
     """
-    probe_df = df[df["vehicle_id"].isin(probe_ids) & df[APPROACH_FLAG_COLUMN]]
+    approach_rows = probe_trajectories_df[probe_trajectories_df["edge_id"].isin(approach_edges)]
 
     sample_times = list(range(sim_begin, sim_end + 1, SAMPLING_INTERVAL_S))
     rows = []
 
     for t in sample_times:
-        snapshot = probe_df[probe_df["timestamp"] == t]
+        snapshot = approach_rows[approach_rows["timestamp"] == t]
         for edge in approach_edges:
             on_edge = snapshot[snapshot["edge_id"] == edge]
             count = len(on_edge)
@@ -386,7 +532,7 @@ def build_gps_observations(
                 "probe_max_distance_to_stopline_m": round(float(on_edge["distance_to_stopline_m"].max()), 2) if count > 0 else None,
             })
 
-    return pd.DataFrame(rows), probe_df
+    return pd.DataFrame(rows), approach_rows
 
 
 # ============================================================================
@@ -402,10 +548,12 @@ def write_outputs(
     seed: int,
     penetration_rate_requested: float,
     probe_ids_observed: Set[str],
+    probe_trajectories_df: pd.DataFrame,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     gps_df.to_csv(out_dir / f"gps_{tag}_timeseries.csv", index=False)
+    probe_trajectories_df.to_csv(out_dir / f"gps_{tag}_probe_trajectories.csv", index=False)
 
     realized_rate = (len(probe_ids) / len(all_vehicle_ids)) if all_vehicle_ids else 0.0
     observed_rate_of_probes = (len(probe_ids_observed) / len(probe_ids)) if probe_ids else 0.0
@@ -420,12 +568,20 @@ def write_outputs(
             "probe_vehicle_count_observed_in_window": len(probe_ids_observed),
             "probe_vehicle_ids_observed_in_window": sorted(probe_ids_observed),
             "probe_observed_rate_in_window": round(observed_rate_of_probes, 4),
+            "probe_trajectory_rows": int(len(probe_trajectories_df)),
+            "probe_trajectory_sampling_interval_s": PROBE_TRAJECTORY_SAMPLING_INTERVAL_S,
             "_note": (
                 "probe_vehicle_ids is the COMPLETE set of GPS-equipped vehicles for this scenario, "
                 "selected from every vehicle_id in the raw trajectory file -- not just vehicle_ids "
                 "appearing in the observation window. A probe absent from "
                 "probe_vehicle_ids_observed_in_window is still a designated probe; it simply had no "
-                "row to report during this scenario's 0-simulation_end viewing window."
+                "row at all (on any edge) during this scenario's simulation_begin-simulation_end "
+                "viewing window. gps_{tag}_probe_trajectories.csv is the single underlying GPS "
+                "observation -- every row (any edge) a selected probe has in the window, at native "
+                "1-second resolution. gps_{tag}_timeseries.csv is a DOWNSTREAM AGGREGATION of that "
+                "same per-probe trajectory (approach-edge rows only, onto the shared 5s observation "
+                "grid) -- kept only because the current Layer 2 pipeline already consumes aggregate "
+                "GPS statistics, not a second, independent sensor."
             ),
         }, f, indent=2)
 
@@ -462,14 +618,11 @@ def process_scenario(scenario_dir: Path, cfg: dict, penetration_rate: float) -> 
 
     # Probe selection uses the COMPLETE scenario vehicle population --
     # every vehicle_id that appears ANYWHERE in the raw trajectory file,
-    # taken BEFORE the 0-simulation_end observation-window filter below.
-    # Penetration rate is a property of the scenario's vehicle population
-    # ("11% of this scenario's vehicles are GPS-equipped"), not of the
-    # viewing window: a vehicle designated as a probe that happens not to
-    # have any row inside the window is still a probe, it just has
-    # nothing to report. Selecting probes only from window-filtered rows
-    # would silently shrink the denominator whenever any vehicle's rows
-    # fell entirely outside [sim_begin, sim_end], understating penetration.
+    # taken BEFORE the observation-window filter below. Penetration rate
+    # is a property of the scenario's vehicle population ("11% of this
+    # scenario's vehicles are GPS-equipped"), not of the viewing window:
+    # a vehicle designated as a probe that happens not to have any row
+    # inside the window is still a probe, it just has nothing to report.
     all_vehicle_ids = set(df["vehicle_id"].unique())
     probe_ids = select_probe_vehicles(all_vehicle_ids, seed, penetration_rate)
     validate_probe_selection(probe_ids, all_vehicle_ids, seed, penetration_rate)
@@ -479,18 +632,32 @@ def process_scenario(scenario_dir: Path, cfg: dict, penetration_rate: float) -> 
     lane_metadata = load_lane_metadata()
     df = resolve_distance_to_stopline(df, lane_metadata, approach_edges)
 
-    gps_df, probe_df = build_gps_observations(df, probe_ids, approach_edges, sim_begin, sim_end)
-    validate_gps_observations(gps_df, probe_df, probe_ids, approach_edges, sim_begin, sim_end)
+    # The single underlying GPS observation: EVERY row (any edge --
+    # approach, internal, or outgoing) belonging to a selected probe
+    # inside the observation window. This is deliberately NOT filtered to
+    # approach edges -- that filtering happens downstream, only for the
+    # 5s aggregate, in build_gps_observations().
+    probe_full_df = df[df["vehicle_id"].isin(probe_ids)]
 
-    # Of the designated probes, how many actually had a row inside the
-    # observation window -- a separate, smaller-or-equal quantity from
-    # probe_ids itself. Not fed back into probe selection anywhere.
-    probe_ids_observed = set(probe_df["vehicle_id"].unique())
+    probe_trajectories_df = build_probe_trajectories(probe_full_df)
+    validate_probe_trajectories(probe_trajectories_df, probe_ids, approach_edges, sim_begin, sim_end)
+
+    # 5s aggregate is a downstream view of the per-probe trajectory above
+    # (approach-edge rows only) -- not an independent read of the raw file.
+    gps_df, aggregate_source_df = build_gps_observations(
+        probe_trajectories_df, approach_edges, sim_begin, sim_end
+    )
+    validate_gps_observations(gps_df, aggregate_source_df, probe_ids, approach_edges, sim_begin, sim_end)
+
+    # Of the designated probes, how many had ANY row at all (any edge) in
+    # the observation window -- a separate, smaller-or-equal quantity
+    # from probe_ids itself. Not fed back into probe selection anywhere.
+    probe_ids_observed = set(probe_full_df["vehicle_id"].unique())
 
     tag = f"p{int(round(penetration_rate * 100)):02d}"
     out_dir = scenario_dir / "observations"
     write_outputs(out_dir, tag, gps_df, probe_ids, all_vehicle_ids, seed, penetration_rate,
-                  probe_ids_observed)
+                  probe_ids_observed, probe_trajectories_df)
 
     realized_rate = (len(probe_ids) / len(all_vehicle_ids)) if all_vehicle_ids else 0.0
     print(f"{scenario['scenario_id']}: GPS observation ({tag}) written to {out_dir}")
@@ -499,6 +666,8 @@ def process_scenario(scenario_dir: Path, cfg: dict, penetration_rate: float) -> 
               f"(requested {penetration_rate:.0%}, realized {realized_rate:.1%})")
         print(f"  probes observed in {sim_begin}-{sim_end}s window: "
               f"{len(probe_ids_observed)}/{len(probe_ids)}")
+        print(f"  probe trajectory rows (per-probe, per-second, all edges, for Cheng-style analysis): "
+              f"{len(probe_trajectories_df)}")
     else:
         print("  no vehicles recorded for this scenario")
 
@@ -509,6 +678,7 @@ def process_scenario(scenario_dir: Path, cfg: dict, penetration_rate: float) -> 
         "total_vehicles": len(all_vehicle_ids),
         "probe_count": len(probe_ids),
         "probe_count_observed_in_window": len(probe_ids_observed),
+        "probe_trajectory_rows": len(probe_trajectories_df),
     }
 
 
@@ -561,10 +731,11 @@ def main() -> None:
 
     print(f"\nDone. {len(succeeded)}/{len(scenario_dirs)} succeeded.")
     if succeeded:
-        print(f"{'scenario_id':30} {'requested':>10} {'realized':>10} {'vehicles':>9} {'probes':>7}")
+        print(f"{'scenario_id':30} {'requested':>10} {'realized':>10} {'vehicles':>9} {'probes':>7} {'traj_rows':>10}")
         for r in succeeded:
             print(f"{r['scenario_id']:30} {r['penetration_requested']:>10.0%} "
-                  f"{r['penetration_realized']:>10.1%} {r['total_vehicles']:>9} {r['probe_count']:>7}")
+                  f"{r['penetration_realized']:>10.1%} {r['total_vehicles']:>9} {r['probe_count']:>7} "
+                  f"{r['probe_trajectory_rows']:>10}")
     if failed:
         print(f"Failed: {failed}")
 
