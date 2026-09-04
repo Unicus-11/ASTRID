@@ -1,5 +1,16 @@
 """
 feature_builder.py
+IMPORTANT ========> VERY IMPORTANT : # NOTE: ( NEW/CURRENT/RECENT CHANGE)
+# Cheng traffic-flow / queue features are retained as a supporting traffic-context
+# module for the SIH system. They are NOT the primary features for the future
+# trajectory prediction model.
+#
+# Keep this feature-engineering pipeline independent from the vehicle-level
+# trajectory prediction features that will be built later. Do not remove or
+# overwrite these Cheng features; they may be used later for congestion/queue
+# context, model inputs, validation, or SIH visualization/explanation.
+
+
 ====================
 ASTRID Prototype -- Feature Builder, LAYER 1 + LAYER 2
 
@@ -247,7 +258,7 @@ DEFAULT_PENETRATION_RATE = 0.11  # ASTRID's primary GPS experiment
 # audit: phases {0,2}=EW (edges 1i,2i), phases {4,6}=NS (edges 3i,4i).
 PHASE_GREEN_GROUP = {0: "EW", 1: "EW", 2: "EW", 3: "EW", 4: "NS", 5: "NS", 6: "NS", 7: "NS"}
 PHASE_IS_GREEN = {0: True, 1: False, 2: True, 3: False, 4: True, 5: False, 6: True, 7: False}
-GROUP_EDGES = {"EW": ["1i", "2i"], "NS": ["3i", "4i"]}
+GROUP_EDGES = {"EW": ["1i", "3i"], "NS": ["2i", "4i"]}
 EDGE_GROUP = {e: g for g, edges in GROUP_EDGES.items() for e in edges}
 
 # Fields no sensor-derived feature table may ever contain -- regression
@@ -286,6 +297,13 @@ PROBE_TRAJECTORY_REQUIRED_COLUMNS = [
 CHENG_C_V_MPS = 3.0 * 0.44704          # ~1.341 m/s -- uniform-motion speed-match threshold
 CHENG_C_A_MPS2 = 3.0 * 0.3048          # ~0.914 m/s^2 -- uniform-accel match threshold
 CHENG_C_V_STOP_MPS = 3.0 * 0.44704     # ~1.341 m/s -- "stopped" threshold (paper reuses c_v)
+
+# ----------------------------------------------------------------------
+# Eq.(12) plausibility guard -- NOT part of Cheng et al.'s equations.
+# Prevents Eq.(12) from being applied to residual queues carried over
+# from a previous under-cleared cycle.
+# ----------------------------------------------------------------------
+CHENG_MAX_PLAUSIBLE_APPROACH_SPEED_MPS = 20.0  # ~72 km/h
 
 
 def load_network_config() -> dict:
@@ -832,70 +850,133 @@ def _cycle_id_for_timestamp(ts: float, red_starts: List[float]) -> Optional[int]
             break
     return idx
 
-
 def extract_critical_points(
     probe_traj_df: pd.DataFrame, signal_df: pd.DataFrame
 ) -> pd.DataFrame:
     """Runs CP extraction + Type I/II/III selection for every
     (probe_id, approach_edge, cycle) combination present in
     probe_traj_df, using ONLY that probe's own past-and-present
-    trajectory rows -- never rows from other probes, and never rows
-    after the relevant cycle's green start (no future information is
-    used to build a feature for an earlier timestamp).
+    trajectory rows.
 
-    signal_df must supply, per approach_edge, the sorted list of
-    red-phase start timestamps (T_r candidates) -- built by the caller
-    from the same is_green_for_approach / red_duration_s signal features
-    add_signal_features() already computes, so this section does not
-    duplicate or reinvent signal-phase logic.
+    A probe's post-stop-line rows (internal/outgoing edges,
+    approach_edge forward-filled) are intentionally included so Type III
+    queue-discharge acceleration can be identified.
 
-    Only rows where approach_edge is not NaN are used for CP extraction
-    (distance_to_stopline_m, which every Cheng equation here needs, is
-    only meaningful on an approach edge -- see gps_simulator.py v0.6
-    docstring). A probe's post-stop-line rows (internal/outgoing edges,
-    approach_edge forward-filled) are intentionally included in the
-    trajectory passed to CP extraction so Type III (queue-discharge
-    acceleration, which may only fully resolve after crossing the stop
-    line) can be identified -- consistent with Cheng et al.'s own use of
-    trajectory data on both sides of the stop bar for this purpose.
-
-    Returns one row per resolved Type II CP (the minimum Cheng needs for
-    Eq. 9/10/12), with columns: probe_id, approach_edge, cycle_id,
-    T_CP1, L_CP1, V_CP1 (Type I; may be NA), T_CP2, L_CP2, T_CP3, L_CP3
-    (Type III; may be NA), T_r (the red-start time this cycle used).
+    Returns one row per resolved Type II CP with columns:
+    probe_id, approach_edge, cycle_id,
+    T_CP1, L_CP1, V_CP1,
+    T_CP2, L_CP2,
+    T_CP3, L_CP3,
+    T_r.
     """
     required_cols = {"probe_id", "approach_edge", "timestamp"}
     if not required_cols.issubset(probe_traj_df.columns):
-        raise ValueError(f"extract_critical_points: missing columns {required_cols - set(probe_traj_df.columns)}")
+        raise ValueError(
+            f"extract_critical_points: missing columns "
+            f"{required_cols - set(probe_traj_df.columns)}"
+        )
 
     rows = []
+
     for approach_edge, red_starts in signal_df.items():
         if not red_starts:
             continue
-        edge_traj = probe_traj_df[probe_traj_df["approach_edge"] == approach_edge]
+
+        edge_traj = probe_traj_df[
+            probe_traj_df["approach_edge"] == approach_edge
+        ]
+
         if edge_traj.empty:
             continue
 
         for probe_id, probe_df in edge_traj.groupby("probe_id"):
-            probe_df = probe_df.sort_values("timestamp").reset_index(drop=True)
+            probe_df = (
+                probe_df
+                .sort_values("timestamp")
+                .reset_index(drop=True)
+            )
 
             # Assign each row to a cycle using ONLY red_starts at or
-            # before that row's own timestamp -- so a later cycle's red
-            # start can never attribute an earlier row to a later cycle
-            # (no future information leaking backward).
+            # before that row's own timestamp. A later cycle's red start
+            # can therefore never attribute an earlier trajectory row
+            # to a later cycle.
             probe_df["_cycle_id"] = probe_df["timestamp"].apply(
                 lambda t: _cycle_id_for_timestamp(t, red_starts)
             )
 
+            # Track this probe's speed at the end of the PREVIOUS cycle
+            # chunk. If the probe was already stopped at that boundary,
+            # the first stopped CP of the next chunk may represent the
+            # continuation of the same physical stop rather than a new
+            # arrival event.
+            #
+            # groupby() on the ascending integer cycle_id iterates in
+            # chronological order, so this carries forward correctly.
+            prev_cycle_last_speed = None
+
             for cycle_id, cycle_df in probe_df.groupby("_cycle_id"):
                 if cycle_id is None or pd.isna(cycle_id):
                     continue
-                cycle_df = cycle_df.sort_values("timestamp").reset_index(drop=True)
+
+                cycle_df = (
+                    cycle_df
+                    .sort_values("timestamp")
+                    .reset_index(drop=True)
+                )
+
+                # If there is only one trajectory row in this chunk,
+                # there is not enough information for CP extraction.
+                # Still carry its speed forward because it is the final
+                # observed speed of the previous chunk.
                 if len(cycle_df) < 2:
+                    if len(cycle_df):
+                        prev_cycle_last_speed = cycle_df["speed_mps"].iloc[-1]
                     continue
 
+                # Extract the Cheng critical points from this probe's
+                # trajectory only.
                 cps = _extract_cps_single_trajectory(cycle_df)
+
+                # ------------------------------------------------------
+                # CONTINUITY FIX
+                # ------------------------------------------------------
+                # If this probe was already stopped at the end of the
+                # previous cycle chunk, and the first CP of this chunk is
+                # itself a stopped CP, that first CP is the continuation
+                # of the existing stop.
+                #
+                # _extract_cps_single_trajectory() always emits its first
+                # trajectory point as a CP. Without this guard, that
+                # carried-over stopped vehicle can be mistaken for a new
+                # Type II arrival immediately after T_r, producing an
+                # unrealistically small:
+                #
+                #     T_CP2 - T_r
+                #
+                # and therefore an extreme q_u through Eq. (12).
+                #
+                # Only index 0 is removed. A genuinely new stopped segment
+                # later in the same cycle remains untouched.
+                carried_over_stopped = (
+                    prev_cycle_last_speed is not None
+                    and prev_cycle_last_speed < CHENG_C_V_STOP_MPS
+                )
+
+                if (
+                    carried_over_stopped
+                    and len(cps) > 0
+                    and bool(cps.iloc[0]["is_stopped_cp"])
+                ):
+                    cps = cps.iloc[1:].reset_index(drop=True)
+
+                # Update the carry-forward state AFTER evaluating the
+                # continuity condition for this cycle.
+                prev_cycle_last_speed = cycle_df["speed_mps"].iloc[-1]
+
+                # Run Type I / II / III selection only after the
+                # continuity correction.
                 selected = _select_type_i_ii_iii(cps)
+
                 if selected is None or selected["type_ii"] is None:
                     continue
 
@@ -903,59 +984,72 @@ def extract_critical_points(
                 type_ii = selected["type_ii"]
                 type_iii = selected["type_iii"]
 
-                rows.append({
-                    "probe_id": probe_id,
-                    "approach_edge": approach_edge,
-                    "cycle_id": int(cycle_id),
-                    "T_r": red_starts[int(cycle_id)],
-                    "T_CP1": type_i["timestamp"] if type_i is not None else pd.NA,
-                    "L_CP1": type_i["distance_to_stopline_m"] if type_i is not None else pd.NA,
-                    "V_CP1": type_i["speed_mps"] if type_i is not None else pd.NA,
-                    "T_CP2": type_ii["timestamp"],
-                    "L_CP2": type_ii["distance_to_stopline_m"],
-                    "T_CP3": type_iii["timestamp"] if type_iii is not None else pd.NA,
-                    "L_CP3": type_iii["distance_to_stopline_m"] if type_iii is not None else pd.NA,
-                })
+                rows.append(
+                    {
+                        "probe_id": probe_id,
+                        "approach_edge": approach_edge,
+                        "cycle_id": int(cycle_id),
+                        "T_r": red_starts[int(cycle_id)],
+
+                        # Type I: beginning of deceleration.
+                        "T_CP1": (
+                            type_i["timestamp"]
+                            if type_i is not None
+                            else pd.NA
+                        ),
+                        "L_CP1": (
+                            type_i["distance_to_stopline_m"]
+                            if type_i is not None
+                            else pd.NA
+                        ),
+                        "V_CP1": (
+                            type_i["speed_mps"]
+                            if type_i is not None
+                            else pd.NA
+                        ),
+
+                        # Type II: stopped/queue-entry CP.
+                        "T_CP2": type_ii["timestamp"],
+                        "L_CP2": type_ii["distance_to_stopline_m"],
+
+                        # Type III: discharge/acceleration CP.
+                        "T_CP3": (
+                            type_iii["timestamp"]
+                            if type_iii is not None
+                            else pd.NA
+                        ),
+                        "L_CP3": (
+                            type_iii["distance_to_stopline_m"]
+                            if type_iii is not None
+                            else pd.NA
+                        ),
+                    }
+                )
 
     return pd.DataFrame(rows)
 
 
 def compute_cheng_queue_features(
-    cp_df: pd.DataFrame, k_jam: float, saturation_flow_veh_per_hour: Optional[float]
+    cp_df: pd.DataFrame,
+    k_jam: float,
+    saturation_flow_veh_per_hour: Optional[float],
 ) -> pd.DataFrame:
     """Applies Cheng et al.'s Eq.(9)/(10)/(12)/(11) to each resolved
     Type II CP row from extract_critical_points().
 
-    Eq.(9): k_CP1 = k_j * (L_CP2 / L_CP1)   -- only where L_CP1 (Type I
-        CP distance) is available and > 0; otherwise NA (not fabricated).
-    Eq.(10)/Eq.(12): q_u -- this file uses Eq.(12) directly,
-        q_u = k_j * L_CP2 / (T_CP2 - T_r), since it needs only the Type
-        II CP and T_r (available here from the real signal controller,
-        see module docstring), rather than Eq.(10)'s form which needs
-        V_CP1 and L_CP1 as well. Both are legitimate per the paper; Eq.
-        12 is used here because it requires strictly fewer resolved
-        quantities and ASTRID has an authoritative T_r.
-    Eq.(11): L_q = q_s * q_u * (T_g - T_r) / (k_j * (q_s - q_u)), where
-        T_g is this probe's own Type III CP timestamp (the discharge
-        start Cheng et al.'s own worked case uses) when available.
-        Requires saturation_flow_veh_per_hour (q_s); left NA if that
-        Webster reference is not configured for this scenario, or if
-        q_s <= q_u (Eq. 11's denominator would be <= 0 -- physically
-        invalid, not silently sign-flipped, same convention as
-        _safe_divide elsewhere in this file).
+    Eq.(9): k_CP1 = k_j * (L_CP2 / L_CP1)
 
-    Also carries through three DIAGNOSTIC (non-quantitative-Cheng-model)
-    columns for QA/debugging: cheng_t_cp2_s, cheng_l_cp2_m (Type II CP's
-    own timestamp/distance -- always present whenever a row exists here)
-    and cheng_t_cp3_s (Type III CP timestamp, may be NA). These let a
-    developer check, per scenario/edge, whether and when Cheng CPs are
-    actually being resolved, independent of whether q_s is configured.
+    Eq.(12): q_u = k_j * L_CP2 / (T_CP2 - T_r)
 
-    Returns cp_df with q_u_cheng_veh_per_hour, k_cp1_cheng_veh_per_km,
-    max_queue_length_cheng_m, cheng_t_cp2_s, cheng_l_cp2_m, and
-    cheng_t_cp3_s columns added (all may be NA per-row).
+    Eq.(11): L_q = q_s * q_u * (T_g - T_r)
+              / (k_j * (q_s - q_u))
+
+    A plausibility guard masks q_u when the implied average approach
+    speed L_CP2 / (T_CP2 - T_r) is physically impossible. This guard
+    is an ASTRID sanity check, not part of Cheng et al.'s equations.
     """
     df = cp_df.copy()
+
     if df.empty:
         df["q_u_cheng_veh_per_hour"] = pd.Series(dtype="Float64")
         df["k_cp1_cheng_veh_per_km"] = pd.Series(dtype="Float64")
@@ -970,89 +1064,114 @@ def compute_cheng_queue_features(
     t_cp2 = pd.to_numeric(df["T_CP2"], errors="coerce")
     t_r = pd.to_numeric(df["T_r"], errors="coerce")
 
-    # Diagnostics -- the Type II CP always exists for every row here
-    # (that's what makes it into cp_df); Type III may not.
     df["cheng_t_cp2_s"] = t_cp2.astype("Float64")
     df["cheng_l_cp2_m"] = l_cp2.astype("Float64")
-    df["cheng_t_cp3_s"] = pd.to_numeric(df["T_CP3"], errors="coerce").astype("Float64")
+    df["cheng_t_cp3_s"] = (
+        pd.to_numeric(df["T_CP3"], errors="coerce")
+        .astype("Float64")
+    )
 
-    # Eq.(9): k_CP1 = k_j * (L_CP2 / L_CP1) [veh/km], L_CP1/L_CP2 in
-    # meters cancel in the ratio, so no unit conversion needed here.
-    df["k_cp1_cheng_veh_per_km"] = (k_jam * _safe_divide(l_cp2, l_cp1)).astype("Float64")
+    # Eq.(9)
+    df["k_cp1_cheng_veh_per_km"] = (
+        k_jam * _safe_divide(l_cp2, l_cp1)
+    ).astype("Float64")
 
-    # Eq.(12): q_u = k_j * L_CP2 / (T_CP2 - T_r). L_CP2 in meters, k_j in
-    # veh/km -> convert L_CP2 to km first so q_u comes out in veh/(time
-    # unit of T_CP2 - T_r, i.e. veh/s), then to veh/hour for readability
-    # and consistency with observed_flow_veh_per_hour elsewhere in this
-    # file.
+    # Eq.(12)
     elapsed_s = t_cp2 - t_r
     l_cp2_km = l_cp2 / 1000.0
-    q_u_veh_per_s = k_jam * _safe_divide(l_cp2_km, elapsed_s)
-    df["q_u_cheng_veh_per_hour"] = (q_u_veh_per_s.astype("Float64") * 3600.0)
 
-    # Eq.(11): L_q = q_s * q_u * (T_g - T_r) / (k_j * (q_s - q_u))
-    if saturation_flow_veh_per_hour is not None and saturation_flow_veh_per_hour > 0:
+    # Sanity-check only -- NOT part of Cheng et al.'s equations.
+    # Guards against Eq.(12) being applied when its undersaturated-cycle
+    # assumption is violated by a residual queue from the previous cycle.
+    implied_speed_mps = _safe_divide(l_cp2, elapsed_s)
+
+    plausible = (
+        implied_speed_mps.notna()
+        & (implied_speed_mps >= 0.0)
+        & (
+            implied_speed_mps
+            <= CHENG_MAX_PLAUSIBLE_APPROACH_SPEED_MPS
+        )
+    )
+
+    q_u_veh_per_s = k_jam * _safe_divide(l_cp2_km, elapsed_s)
+
+    df["q_u_cheng_veh_per_hour"] = (
+        q_u_veh_per_s.astype("Float64") * 3600.0
+    )
+
+    # Invalid / physically impossible Eq.(12) cases are not usable.
+    df.loc[~plausible, "q_u_cheng_veh_per_hour"] = pd.NA
+
+    # Eq.(11)
+    if (
+        saturation_flow_veh_per_hour is not None
+        and saturation_flow_veh_per_hour > 0
+    ):
         q_s = float(saturation_flow_veh_per_hour)
         q_u = df["q_u_cheng_veh_per_hour"]
+
         t_g = pd.to_numeric(df["T_CP3"], errors="coerce")
-        t_g_minus_t_r = t_g - t_r
+
+        # Convert seconds to hours because q_s and q_u are veh/hour.
+        t_g_minus_t_r_h = (t_g - t_r) / 3600.0
+
         denom = k_jam * (q_s - q_u.astype("Float64"))
-        numer = q_s * q_u.astype("Float64") * t_g_minus_t_r.astype("Float64")
-        df["max_queue_length_cheng_m"] = _safe_divide(numer, denom)
+
+        numer = (
+            q_s
+            * q_u.astype("Float64")
+            * t_g_minus_t_r_h.astype("Float64")
+        )
+
+        df["max_queue_length_cheng_m"] = (
+        _safe_divide(numer, denom) * 1000.0
+        ).astype("Float64")
+        
+        
     else:
-        df["max_queue_length_cheng_m"] = pd.Series(pd.NA, index=df.index, dtype="Float64")
+        df["max_queue_length_cheng_m"] = pd.Series(
+            pd.NA,
+            index=df.index,
+            dtype="Float64",
+        )
 
     return df
-
-
+### This is updated 
 def aggregate_cheng_features_to_grid(
-    cheng_df: pd.DataFrame, grid_index: pd.DataFrame
+    cheng_df: pd.DataFrame,
+    grid_index: pd.DataFrame,
+    red_starts: Dict[str, List[float]],
 ) -> pd.DataFrame:
-    """Aggregates the per-(probe, approach_edge, cycle) Cheng features
-    back onto the existing (timestamp, approach_edge) 5-second feature
-    grid, so the rest of the Layer 2 pipeline is unaffected.
+    """Aggregates coherent Cheng events onto the 5-second feature grid.
 
-    A Cheng feature resolved for a given cycle only becomes available to
-    the grid from the timestamp of the CP that produced it onward within
-    that cycle -- never at timestamps before the CP was actually
-    observed (no future information used for an earlier row). For each
-    approach_edge, timestamp, and feature this takes the value from the
-    MOST RECENT already-resolved CP (across all probes on that edge)
-    whose relevant CP timestamp is <= the grid row's own timestamp, i.e.
-    a per-edge, past-only "as-of" join, then forward-fills within the
-    remainder of that same cycle only (a value never crosses a red-start
-    boundary into the next cycle).
+    One Cheng event is selected per grid row. CP2-derived fields become
+    available at T_CP2. CP3-derived fields become available later, at
+    T_CP3, but always from the SAME Cheng event.
 
-    Causality of each column, explicitly:
-      - q_u_cheng_veh_per_hour, k_cp1_cheng_veh_per_km, cheng_t_cp2_s,
-        cheng_l_cp2_m: all become known at T_CP2 (Type II always exists
-        for any row reaching this function; Type I, if resolved, is
-        always at or before T_CP2, so k_cp1 needs nothing later).
-      - max_queue_length_cheng_m, cheng_t_cp3_s: become known at T_CP3
-        (Type III), which is always after T_CP2 -- so these are
-        deliberately made available LATER than the T_CP2-based columns
-        above, never at or before T_CP2.
-    A grid row at t=120 can therefore never see a Type-II-dependent value
-    from a CP observed at t=125, nor a Type-III-dependent value from a
-    CP observed at t=130, in either case.
-
-    grid_index must have columns: timestamp, approach_edge (the same
-    grid features already use). Returns a DataFrame with those two key
-    columns plus the aggregated Cheng feature columns, one row per grid
-    row, ready to merge into the Layer 2 feature table.
+    Cycle assignment uses the original signal red_starts.
     """
-    # Columns available from T_CP2 onward (Type II CP is required for
-    # any row to exist in cheng_df at all, so these are never missing
-    # column-wise, only value-wise per Eq.(9)/(12)'s own NA rules).
-    t_cp2_cols = ["q_u_cheng_veh_per_hour", "k_cp1_cheng_veh_per_km", "cheng_t_cp2_s", "cheng_l_cp2_m"]
-    # Columns available only from T_CP3 onward (strictly later than
-    # T_CP2, since Type III always follows Type II in time).
-    t_cp3_cols = ["max_queue_length_cheng_m", "cheng_t_cp3_s"]
+    t_cp2_cols = [
+        "q_u_cheng_veh_per_hour",
+        "k_cp1_cheng_veh_per_km",
+        "cheng_t_cp2_s",
+        "cheng_l_cp2_m",
+    ]
+
+    t_cp3_cols = [
+        "max_queue_length_cheng_m",
+        "cheng_t_cp3_s",
+    ]
+
     feature_cols = t_cp2_cols + t_cp3_cols
 
-    out = grid_index[["timestamp", "approach_edge"]].drop_duplicates().sort_values(
-        ["approach_edge", "timestamp"]
-    ).reset_index(drop=True)
+    out = (
+        grid_index[["timestamp", "approach_edge"]]
+        .drop_duplicates()
+        .sort_values(["approach_edge", "timestamp"])
+        .reset_index(drop=True)
+    )
+
     for col in feature_cols:
         out[col] = pd.NA
 
@@ -1061,77 +1180,90 @@ def aggregate_cheng_features_to_grid(
             out[col] = out[col].astype("Float64")
         return out
 
-    # The feature becomes available at T_CP2's timestamp (that's when
-    # q_u/k_cp1/the CP2 diagnostics are first computable) or, for
-    # max_queue_length_cheng_m / cheng_t_cp3_s, at T_CP3 (queue-discharge
-    # start; before that the discharge-shock endpoint the formula needs
-    # hasn't happened yet).
     cheng_df = cheng_df.copy()
-    cheng_df["_available_ts_qu"] = pd.to_numeric(cheng_df["T_CP2"], errors="coerce")
-    cheng_df["_available_ts_lq"] = pd.to_numeric(cheng_df["T_CP3"], errors="coerce")
 
-    col_availability = {col: "_available_ts_qu" for col in t_cp2_cols}
-    col_availability.update({col: "_available_ts_lq" for col in t_cp3_cols})
+    for col in ["T_CP2", "T_CP3", "T_r", "cycle_id"]:
+        if col in cheng_df.columns:
+            cheng_df[col] = pd.to_numeric(
+                cheng_df[col],
+                errors="coerce",
+            )
 
     for approach_edge, edge_cheng in cheng_df.groupby("approach_edge"):
+        edge_red_starts = red_starts.get(approach_edge, [])
+        if not edge_red_starts:
+            continue
+
         edge_mask = out["approach_edge"] == approach_edge
         edge_grid = out.loc[edge_mask].copy()
 
-        # Use ONE canonical set of red-phase starts for this approach.
-        # Cycle assignment must be identical for every Cheng feature.
-        red_starts_sorted = sorted(
-            edge_cheng["T_r"].dropna().unique().tolist()
-        )
+        events = edge_cheng.dropna(
+            subset=["T_CP2", "cycle_id"]
+        ).copy()
 
-        for col, ts_col in col_availability.items():
-            events = (
-                edge_cheng[
-                    ["cycle_id", ts_col, col, "T_r"]
-                ]
-                .dropna(subset=[ts_col])
-                .sort_values(ts_col)
+        if events.empty:
+            continue
+
+        def _values_for_row(row_ts: float) -> Dict[str, object]:
+            row_cycle = _cycle_id_for_timestamp(
+                row_ts,
+                edge_red_starts,
             )
 
-            if events.empty:
-                continue
+            if row_cycle is None:
+                return {col: pd.NA for col in feature_cols}
 
-            def _value_for_row(
-                row_ts: float,
-                _events=events,
-                _red_starts=red_starts_sorted,
-                _col=col,
-                _ts_col=ts_col,
-            ) -> object:
-                row_cycle = _cycle_id_for_timestamp(
-                    row_ts, _red_starts
-                )
+            # ----------------------------------------------------------
+            # Select ONE canonical Cheng event using T_CP2.
+            # ----------------------------------------------------------
+            candidates = events[
+                (events["cycle_id"] == row_cycle)
+                & (events["T_CP2"] <= row_ts)
+            ]
 
-                if row_cycle is None:
-                    return pd.NA
+            if candidates.empty:
+                return {col: pd.NA for col in feature_cols}
 
-                cand = _events[
-                    (_events[_ts_col] <= row_ts)
-                    & (_events["cycle_id"] == row_cycle)
-                ]
+            event = candidates.sort_values(
+                "T_CP2"
+            ).iloc[-1]
 
-                if cand.empty:
-                    return pd.NA
+            result = {
+                col: event[col]
+                for col in t_cp2_cols
+            }
 
-                return cand.sort_values(_ts_col).iloc[-1][_col]
+            # ----------------------------------------------------------
+            # CP3 fields must come from THIS SAME event.
+            # ----------------------------------------------------------
+            t_cp3 = event["T_CP3"]
 
-            edge_grid[col] = edge_grid["timestamp"].apply(
-                _value_for_row
-            )
+            if pd.notna(t_cp3) and t_cp3 <= row_ts:
+                for col in t_cp3_cols:
+                    result[col] = event[col]
+            else:
+                for col in t_cp3_cols:
+                    result[col] = pd.NA
+
+            return result
+
+        values = edge_grid["timestamp"].apply(_values_for_row)
+
+        for col in feature_cols:
+            edge_grid[col] = values.apply(lambda x, _col=col: x[_col])
 
         out.loc[
-            edge_mask, [c for c in feature_cols]
+            edge_mask,
+            feature_cols,
         ] = edge_grid[feature_cols].values
-        
+
     for col in feature_cols:
-        out[col] = pd.to_numeric(out[col], errors="coerce").astype("Float64")
+        out[col] = pd.to_numeric(
+            out[col],
+            errors="coerce",
+        ).astype("Float64")
 
     return out
-
 
 def build_signal_red_starts(signal_features_df: pd.DataFrame, approach_edges: List[str]) -> Dict[str, List[float]]:
     """Builds, per approach_edge, the sorted list of red-phase start
@@ -1195,9 +1327,15 @@ def add_cheng_trajectory_features(
 
     cp_df = extract_critical_points(probe_traj_df, red_starts)
     cheng_df = compute_cheng_queue_features(cp_df, k_jam, saturation_flow_veh_per_hour)
-    aggregated = aggregate_cheng_features_to_grid(cheng_df, df[["timestamp", "approach_edge"]])
+
+    aggregated = aggregate_cheng_features_to_grid(
+    cheng_df,
+    df[["timestamp", "approach_edge"]],
+    red_starts, # Also updated this
+)
 
     df = df.merge(aggregated, on=["timestamp", "approach_edge"], how="left", validate="one_to_one")
+    
     return df
 
 
