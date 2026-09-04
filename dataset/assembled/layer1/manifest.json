@@ -1,0 +1,148 @@
+{
+  "layer": "layer1",
+  "penetration_tag": null,
+  "sampling_interval_s": 5,
+  "delta_window_s": 30,
+  "splits": {
+    "train": {
+      "n_scenarios": 4,
+      "n_rows": 11536,
+      "scenarios": [
+        "scenario_high_demand",
+        "scenario_left_turn_heavy",
+        "scenario_low_demand",
+        "scenario_normal_balanced"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer1\\train.csv"
+    },
+    "val": {
+      "n_scenarios": 2,
+      "n_rows": 5768,
+      "scenarios": [
+        "scenario_north_heavy",
+        "scenario_straight_heavy"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer1\\validation.csv"
+    },
+    "test": {
+      "n_scenarios": 2,
+      "n_rows": 5768,
+      "scenarios": [
+        "scenario_east_west_heavy",
+        "scenario_south_heavy"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer1\\test.csv"
+    },
+    "ood": {
+      "n_scenarios": 4,
+      "n_rows": 11536,
+      "scenarios": [
+        "scenario_burst_demand_OOD",
+        "scenario_heavy_vehicle_OOD",
+        "scenario_north_extreme_OOD",
+        "scenario_very_high_demand_OOD"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer1\\ood.csv"
+    }
+  }
+}
