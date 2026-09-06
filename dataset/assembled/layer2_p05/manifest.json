@@ -1,0 +1,208 @@
+{
+  "layer": "layer2",
+  "penetration_tag": "p05",
+  "sampling_interval_s": 5,
+  "delta_window_s": 30,
+  "splits": {
+    "train": {
+      "n_scenarios": 4,
+      "n_rows": 11536,
+      "scenarios": [
+        "scenario_high_demand",
+        "scenario_left_turn_heavy",
+        "scenario_low_demand",
+        "scenario_normal_balanced"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "probe_count",
+        "probe_mean_speed_mps",
+        "probe_min_distance_to_stopline_m",
+        "probe_max_distance_to_stopline_m",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction",
+        "probe_count_change_30s",
+        "probe_max_distance_to_stopline_m_change_30s",
+        "current_phase",
+        "phase_elapsed_s",
+        "is_green_for_approach",
+        "red_duration_s",
+        "estimated_density_k_veh_per_km",
+        "observed_flow_veh_per_hour",
+        "estimated_queue_front_propagation_m_per_s",
+        "estimated_hidden_queue_extension_m"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method",
+        "gps_penetration_rate_requested"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer2_p05\\train.csv"
+    },
+    "val": {
+      "n_scenarios": 2,
+      "n_rows": 5768,
+      "scenarios": [
+        "scenario_north_heavy",
+        "scenario_straight_heavy"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "probe_count",
+        "probe_mean_speed_mps",
+        "probe_min_distance_to_stopline_m",
+        "probe_max_distance_to_stopline_m",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction",
+        "probe_count_change_30s",
+        "probe_max_distance_to_stopline_m_change_30s",
+        "current_phase",
+        "phase_elapsed_s",
+        "is_green_for_approach",
+        "red_duration_s",
+        "estimated_density_k_veh_per_km",
+        "observed_flow_veh_per_hour",
+        "estimated_queue_front_propagation_m_per_s",
+        "estimated_hidden_queue_extension_m"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method",
+        "gps_penetration_rate_requested"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer2_p05\\validation.csv"
+    },
+    "test": {
+      "n_scenarios": 2,
+      "n_rows": 5768,
+      "scenarios": [
+        "scenario_east_west_heavy",
+        "scenario_south_heavy"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "probe_count",
+        "probe_mean_speed_mps",
+        "probe_min_distance_to_stopline_m",
+        "probe_max_distance_to_stopline_m",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction",
+        "probe_count_change_30s",
+        "probe_max_distance_to_stopline_m_change_30s",
+        "current_phase",
+        "phase_elapsed_s",
+        "is_green_for_approach",
+        "red_duration_s",
+        "estimated_density_k_veh_per_km",
+        "observed_flow_veh_per_hour",
+        "estimated_queue_front_propagation_m_per_s",
+        "estimated_hidden_queue_extension_m"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method",
+        "gps_penetration_rate_requested"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer2_p05\\test.csv"
+    },
+    "ood": {
+      "n_scenarios": 4,
+      "n_rows": 11536,
+      "scenarios": [
+        "scenario_burst_demand_OOD",
+        "scenario_heavy_vehicle_OOD",
+        "scenario_north_extreme_OOD",
+        "scenario_very_high_demand_OOD"
+      ],
+      "key_columns": [
+        "timestamp",
+        "approach_edge"
+      ],
+      "feature_columns": [
+        "camera_range_m",
+        "visible_vehicle_count",
+        "visible_mean_speed_mps",
+        "visible_queue_count",
+        "visible_queue_length_m",
+        "queue_reaches_camera_edge",
+        "probe_count",
+        "probe_mean_speed_mps",
+        "probe_min_distance_to_stopline_m",
+        "probe_max_distance_to_stopline_m",
+        "visible_queue_length_m_change_30s",
+        "visible_mean_speed_mps_change_30s",
+        "visible_occupancy_fraction",
+        "probe_count_change_30s",
+        "probe_max_distance_to_stopline_m_change_30s",
+        "current_phase",
+        "phase_elapsed_s",
+        "is_green_for_approach",
+        "red_duration_s",
+        "estimated_density_k_veh_per_km",
+        "observed_flow_veh_per_hour",
+        "estimated_queue_front_propagation_m_per_s",
+        "estimated_hidden_queue_extension_m"
+      ],
+      "label_columns": [
+        "true_queue_length_m",
+        "true_queue_beyond_camera"
+      ],
+      "metadata_columns": [
+        "scenario_id",
+        "split",
+        "design_method",
+        "gps_penetration_rate_requested"
+      ],
+      "prediction_horizon_s": [],
+      "output_file": "C:\\Users\\DISHA\\SIH\\ASTRID\\dataset\\assembled\\layer2_p05\\ood.csv"
+    }
+  }
+}

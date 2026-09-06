@@ -1,414 +1,675 @@
-# HistGradientBoosting Hyperparameter Tuning and Final Selection
+# ASTRID — Machine Learning Baseline Development and Model Selection
 
-## 1. Objective
+## 1. Overview
 
-After establishing the seven baseline regression models for ASTRID Layer 2, HistGradientBoosting was selected for further hyperparameter investigation because it produced the strongest standalone baseline performance.
+ASTRID estimates traffic queue length from simulated traffic observations with the eventual goal of providing a useful traffic-state estimate for downstream signal control.
 
-The tuning experiment was conducted using the `layer2_p11` dataset with GPS penetration fixed at 11%. GPS penetration was intentionally held constant during model selection so that hyperparameter tuning measured model behavior rather than changes in sensing availability.
+The machine-learning target used in this stage is:
 
-Hyperparameter selection used the TRAIN split for model fitting and the VALIDATION split for candidate selection. TEST and OOD were not used to select hyperparameters during the tuning rounds.
+- **Target:** `true_queue_length_m`
+- **Meaning:** ground-truth queue length in metres.
 
-## 2. Tuning Methodology
+The objective of this stage was to establish a reliable baseline model, compare several machine-learning approaches, understand their error patterns, investigate whether combining models could improve performance, and select a final baseline model before hyperparameter tuning.
 
-The tuning process was conducted in five progressively narrower rounds.
+> **Important:** The baseline comparison and subsequent HistGradientBoosting tuning have been completed. The original p11 HistGradientBoosting baseline remains the selected final model after held-out evaluation; the p50 penetration experiment below is a separate sensitivity/diagnostic study.
 
-The hyperparameters investigated were:
+---
 
-- `learning_rate`
-- `max_iter`
-- `max_leaf_nodes`
-- `min_samples_leaf`
-- `l2_regularization`
-- `max_depth`
+## 2. Feature Layers
 
-`early_stopping=False` and `random_state=42` were kept fixed throughout the valid tuning rounds.
+Two feature configurations were evaluated.
 
-The selection rule was defined before the final tuning decision:
+### Layer 1
 
-1. Select the configuration with the lowest validation MAE.
-2. Treat configurations within 1% of the best validation MAE as a tie group.
-3. Within that group, select the lowest validation RMSE.
-4. If necessary, use the highest validation R².
-5. If still necessary, prefer the simpler configuration.
+Layer 1 uses information that can be obtained primarily from the camera observation stream, together with past-only temporal features and occupancy information.
 
-The tuning process was validation-driven and did not use TEST or OOD to adjust hyperparameters.
+The temporal features use historical information only. For example, a 30-second change feature compares the current observation with the observation 30 seconds earlier:
 
-## 3. Important Implementation Correction
+`value(t) - value(t - 30 s)`
 
-During Round 5, an implementation issue was discovered.
+This avoids using future information when constructing the current-state estimate.
 
-The project `HistGradientBoostingModel` wrapper did not expose or forward the `early_stopping` parameter to `sklearn.ensemble.HistGradientBoostingRegressor`. This could cause scikit-learn's automatic early-stopping behavior to be used unintentionally.
+### Layer 2
 
-The affected initial Round 5 execution was therefore treated as invalid and was not used for any model-selection decision.
+Layer 2 extends Layer 1 with additional information:
 
-Round 5 was rerun using `HistGradientBoostingRegressor` directly with:
+- GPS/probe observations
+- signal phase information
+- phase elapsed time
+- additional temporal probe features
+- physics-derived traffic features
 
-```text
-early_stopping=False
-random_state=42
-```
+The purpose of Layer 2 is to determine whether combining camera information with probe, signal, and derived traffic-state information produces a more accurate queue estimate.
 
-The corrected Round 5 results reproduced the earlier valid reference configurations and were used for the final tuning decision.
+---
 
-## 4. Round 1
+## 3. Dataset and Evaluation Design
 
-The first tuning round evaluated 40 configurations.
+The dataset contains multiple traffic scenarios representing different demand and directional conditions.
 
-The strongest configuration was Trial 26:
+The scenarios include:
 
-```text
-learning_rate      = 0.0341917
-max_iter           = 270
-max_leaf_nodes     = 43
-min_samples_leaf   = 40
-l2_regularization  = 0.942854
-max_depth          = 10
-early_stopping     = False
-```
+- normal balanced demand
+- low demand
+- high demand
+- north-heavy demand
+- south-heavy demand
+- east/west-heavy demand
+- straight-heavy demand
+- left-turn-heavy demand
+- burst-demand OOD
+- very-high-demand OOD
+- north-extreme OOD
+- heavy-vehicle OOD
 
-Validation performance:
+The data were assembled using **scenario-level splits** rather than random row-level splitting. This is important because rows from the same traffic scenario are temporally related. Randomly distributing rows from one scenario across training and testing could allow information from essentially the same traffic realization to appear in both sets.
 
-```text
-MAE  = 5.075884
-RMSE = 20.365645
-R²   = 0.972108
-```
+The final split structure is:
 
-This improved validation MAE relative to the baseline-control configuration, but its subsequent TEST/OOD performance did not outperform the original baseline.
+- **TRAIN:** used to fit models
+- **VALIDATION:** used for model comparison and selection
+- **TEST:** held out for final in-distribution evaluation
+- **OOD:** held out for robustness/generalization evaluation
 
-## 5. Rounds 2–4
+### OOD meaning
 
-Further validation-only searches explored a narrower region around strong candidates from Round 1.
+**OOD** means **Out-of-Distribution**.
 
-The most important configurations emerging from these rounds were:
+The OOD scenarios intentionally differ from the normal training conditions. They test whether a model can generalize to traffic conditions that were not represented in the ordinary training scenarios.
 
-### Trial 13
+Examples include burst demand, very high demand, extreme directional demand, and heavy-vehicle conditions.
 
-```text
-learning_rate      = 0.058092
-max_iter           = 151
-max_leaf_nodes     = 54
-min_samples_leaf   = 25
-l2_regularization  = 0.470324
-max_depth          = 8
-```
+---
 
-Validation:
+# 4. Seven Baseline Models
 
-```text
-MAE  = 4.984759
-RMSE = 20.462688
-R²   = 0.971842
-```
+Seven machine-learning models were evaluated.
 
-### Trial 7
+## 4.1 Random Forest
+
+**Random Forest** is an ensemble of decision trees. Multiple trees independently make predictions, and their predictions are combined, typically by averaging for regression.
+
+It is a strong and robust baseline for tabular data.
+
+### Intuition
+
+Instead of trusting one decision tree:
 
 ```text
-learning_rate      = 0.025034
-max_iter           = 369
-max_leaf_nodes     = 52
-min_samples_leaf   = 35
-l2_regularization  = 0.502603
-max_depth          = 10
+Tree 1 ─┐
+Tree 2 ─┤
+Tree 3 ─┤ → average → prediction
+...     │
+Tree N ─┘
 ```
 
-Validation:
+The averaging process generally makes the prediction more stable than relying on one tree.
+
+---
+
+## 4.2 Extra Trees
+
+**Extra Trees**, or Extremely Randomized Trees, is similar to Random Forest but introduces additional randomness when constructing the trees.
+
+This reduces correlation between individual trees and can sometimes improve generalization.
+
+In simple terms:
+
+> Random Forest builds many different trees; Extra Trees deliberately makes the tree-building process even more random.
+
+---
+
+## 4.3 XGBoost
+
+**XGBoost** is a gradient-boosting algorithm.
+
+Instead of building independent trees and averaging them, gradient boosting builds trees sequentially. Each new tree attempts to correct errors made by the previous trees.
+
+Conceptually:
 
 ```text
-MAE  = 4.986771
-RMSE = 20.229983
-R²   = 0.972479
+Initial prediction
+       ↓
+Tree 1 corrects errors
+       ↓
+Tree 2 corrects remaining errors
+       ↓
+Tree 3 corrects remaining errors
+       ↓
+...
+       ↓
+Final prediction
 ```
 
-### Trial 39
+XGBoost is widely used for structured/tabular machine-learning problems.
+
+---
+
+## 4.4 LightGBM
+
+**LightGBM** is another gradient-boosting framework designed for efficient tree construction.
+
+It uses histogram-based techniques and is designed to train efficiently while maintaining strong predictive performance on tabular datasets.
+
+The project uses the `lightgbm` package.
+
+---
+
+## 4.5 CatBoost
+
+**CatBoost** is a gradient-boosting algorithm designed particularly to handle categorical information effectively.
+
+Although the ASTRID feature set is primarily numerical, CatBoost was included as another established gradient-boosting baseline.
+
+---
+
+## 4.6 HistGradientBoosting
+
+**HistGradientBoosting** is a histogram-based gradient-boosting algorithm available in scikit-learn.
+
+Instead of considering every continuous feature value independently when constructing trees, continuous values are grouped into histogram bins.
+
+This can make training efficient while retaining strong predictive performance.
+
+It also supports missing numerical values natively, which is useful for ASTRID because sparse probe observations naturally produce missing values in some rows.
+
+---
+
+## 4.7 MLP
+
+**MLP** stands for **Multi-Layer Perceptron**.
+
+It is a basic feed-forward neural network. Unlike the tree-based models, it learns a set of interconnected numerical transformations through layers of neurons.
+
+The MLP was included to determine whether a simple neural-network approach could outperform the tree-based baselines on the ASTRID tabular feature representation.
+
+The MLP uses:
+
+- median imputation
+- feature standardization
+- two hidden layers
+- ReLU activation
+- Adam optimization
+- fixed random state
+
+The preprocessing is fitted using training data only and persisted together with the model.
+
+---
+
+# 5. Evaluation Metrics
+
+Several metrics were used to evaluate queue-length prediction.
+
+## 5.1 MAE — Mean Absolute Error
+
+**MAE** is the average absolute difference between the predicted and true queue lengths.
+
+For example:
+
+> MAE = 18.71 m
+
+means that the model's predictions differ from the true queue length by approximately 18.71 metres on average.
+
+Lower is better.
+
+MAE is particularly easy to interpret because it remains in the same unit as the target: **metres**.
+
+---
+
+## 5.2 RMSE — Root Mean Squared Error
+
+**RMSE** is similar to MAE, but it gives greater weight to large errors because the errors are squared before averaging.
+
+This is useful for ASTRID because a very large queue-estimation error can be more consequential than several small errors.
+
+Lower is better.
+
+---
+
+## 5.3 R² — Coefficient of Determination
+
+**R²** measures how well the model explains variation in the target.
+
+A simplified interpretation is:
+
+- `R² = 1` → perfect prediction
+- `R² = 0` → no improvement over predicting the mean
+- `R² < 0` → worse than that simple mean-prediction baseline
+
+Higher is better.
+
+---
+
+# 6. Layer 1 vs Layer 2
+
+The addition of Layer 2 information substantially improved model performance.
+
+For the eventual strongest baseline, HistGradientBoosting:
+
+| Metric | Layer 1 | Layer 2 | Change |
+|---|---:|---:|---:|
+| Test MAE | 29.19 m | **18.71 m** | **35.90% reduction** |
+| Test RMSE | 63.01 m | **44.63 m** | **29.17% reduction** |
+| Test R² | 0.879 | **0.939** | +0.060 |
+| OOD MAE | 64.51 m | **34.76 m** | **46.12% reduction** |
+| OOD RMSE | 104.67 m | **63.11 m** | **39.71% reduction** |
+| OOD R² | 0.735 | **0.904** | +0.168 |
+
+This indicates that the additional probe/GPS, signal, temporal, and derived traffic-state information provides substantial predictive value.
+
+Layer 2 was therefore selected as the feature configuration for the subsequent model comparison.
+
+---
+
+# 7. Layer 2 Baseline Model Comparison
+
+The seven models were compared using the Layer 2 feature set.
+
+| Model | Validation MAE ↓ | Test MAE ↓ | Test RMSE ↓ | Test R² ↑ | OOD MAE ↓ | OOD R² ↑ |
+|---|---:|---:|---:|---:|---:|---:|
+| Random Forest | **4.91** | 20.04 | 49.12 | 0.926 | 36.24 | 0.893 |
+| Extra Trees | 5.61 | 20.26 | 48.27 | 0.929 | 38.38 | 0.892 |
+| XGBoost | 6.22 | 20.56 | 48.32 | 0.929 | 38.41 | 0.892 |
+| LightGBM | 5.78 | 20.09 | 47.68 | 0.931 | 36.90 | 0.897 |
+| CatBoost | 7.52 | 20.59 | 47.03 | 0.933 | 38.20 | 0.897 |
+| **HistGradientBoosting** | 5.28 | **18.71** | **44.63** | **0.939** | **34.76** | **0.904** |
+| MLP | 10.67 | 22.39 | 47.51 | 0.931 | 39.81 | 0.892 |
+
+### Interpretation
+
+Random Forest achieved the best validation MAE.
+
+However, validation performance alone was not used to declare the final model. The held-out TEST and OOD results provide a stronger basis for assessing generalization.
+
+HistGradientBoosting achieved:
+
+- the lowest TEST MAE
+- the lowest TEST RMSE
+- the highest TEST R²
+- the lowest OOD MAE
+- the highest OOD R²
+
+Therefore, HistGradientBoosting was the strongest overall baseline model.
+
+The MLP was valid but did not outperform the tree-based models. Its Layer 2 TEST R² of 0.9311 was respectable, but its TEST MAE and RMSE were worse than HistGradientBoosting, and its validation MAE was substantially worse.
+
+No additional tuning was performed on the MLP because the objective at this stage was baseline comparison rather than optimization of every model.
+
+---
+
+# 8. Error Analysis
+
+Overall metrics do not show where a model succeeds or fails. Therefore, additional error analysis was performed on HistGradientBoosting and Random Forest.
+
+A major pattern emerged.
+
+## 8.1 Short queues
+
+For short queues, particularly queues below approximately 25 metres, Random Forest performed extremely well.
+
+On the TEST split for the `0–25 m` true-queue group:
+
+| Model | MAE |
+|---|---:|
+| Random Forest | **0.030 m** |
+| HistGradientBoosting | 0.438 m |
+
+This indicates that Random Forest was very effective when the queue was short and directly observable.
+
+---
+
+## 8.2 Large queues
+
+Performance became much more difficult as the true queue length increased.
+
+For HistGradientBoosting on TEST:
+
+| True queue length | MAE |
+|---|---:|
+| 0–25 m | 0.44 m |
+| 25–50 m | 2.31 m |
+| 50–100 m | 8.88 m |
+| 100–200 m | 23.63 m |
+| 200–400 m | 47.08 m |
+| >400 m | 73.34 m |
+
+The model is therefore highly accurate for short queues but has substantially larger errors for long queues.
+
+---
+
+# 9. Camera-Edge Censoring
+
+A key difficulty is represented by:
+
+`queue_reaches_camera_edge`
+
+When this value is `True`, the queue reaches the observable boundary of the camera.
+
+This means that the camera cannot directly observe the complete queue.
+
+### Censoring
+
+**Censoring** means that the quantity of interest exists, but the sensor's observation range prevents direct observation of the entire quantity.
+
+For example:
 
 ```text
-learning_rate      = 0.029409
-max_iter           = 279
-max_leaf_nodes     = 45
-min_samples_leaf   = 31
-l2_regularization  = 0.782118
-max_depth          = 10
+Actual queue:
+|---------------------------------------------->
+
+Camera:
+|--------------------|
+                     ↑ observation boundary
 ```
 
-Validation:
+If the queue extends beyond that boundary, the observed queue length is not necessarily the true queue length.
+
+This explains why large queues and camera-edge cases are considerably harder for the ML models.
+
+For HistGradientBoosting on TEST:
+
+| Camera-edge condition | MAE |
+|---|---:|
+| `False` | 8.79 m |
+| `True` | 62.09 m |
+
+This is one of the most important error patterns identified in the project.
+
+---
+
+# 10. Why a Hybrid Model Was Investigated
+
+The error analysis showed that the two strongest models had complementary behavior.
+
+In simplified form:
 
 ```text
-MAE  = 4.992469
-RMSE = 20.343517
-R²   = 0.972169
+Short / clearly observable queue
+            ↓
+      Random Forest
+      tends to be stronger
+
+Queue reaches camera edge
+            ↓
+ HistGradientBoosting
+      tends to be stronger
 ```
 
-Although Trial 13 had slightly lower MAE than Trial 7, the difference was within the predefined 1% MAE tie band. Trial 7 therefore won the tie-break because it had the best validation RMSE and R² among the qualifying configurations.
+This suggested that instead of always using one model, ASTRID could potentially choose the model according to the observed traffic state.
 
-## 6. Round 5
+## Hybrid model
 
-Round 5 was deliberately small and focused on local perturbations around the strongest configurations.
+A **hybrid model** uses multiple trained models and a routing rule that determines which model produces the prediction for a particular observation.
 
-The lowest validation MAE obtained in Round 5 was:
+The idea was:
 
 ```text
-Trial 8
-learning_rate      = 0.022500
-max_iter           = 400
-max_leaf_nodes     = 52
-min_samples_leaf   = 36
-l2_regularization  = 0.480000
-max_depth          = 9
+Observation
+    ↓
+Routing condition
+    ├── condition A → Random Forest
+    └── condition B → HistGradientBoosting
 ```
 
-Validation:
+---
+
+# 11. Validation-Only Hybrid Investigation
+
+Several simple routing rules were investigated using the **VALIDATION split only**.
+
+The rules included conditions based on:
+
+- camera-edge status
+- signal state
+- visible queue length thresholds
+- approach
+- combinations of observable traffic conditions
+
+The simplest rule that improved upon both standalone models on validation was named:
+
+## `congestion_flag`
+
+The frozen rule was:
 
 ```text
-MAE  = 4.946963
-RMSE = 20.344454
-R²   = 0.972166
+queue_reaches_camera_edge == False
+    → Random Forest
+
+queue_reaches_camera_edge == True
+    → HistGradientBoosting
 ```
 
-This was the lowest validation MAE observed during the tuning process.
+On VALIDATION:
 
-However, Trial 8 fell within the 1% MAE tie band around the best candidate. Trial 7 remained the formal winner under the predefined selection rule because it had:
+| Model / Rule | MAE |
+|---|---:|
+| Random Forest | 4.9125 m |
+| HistGradientBoosting | 5.2766 m |
+| **Hybrid: congestion_flag** | **4.7364 m** |
+
+The hybrid therefore improved upon both standalone models on validation.
+
+### Why validation was used
+
+The routing rule was selected using validation data so that TEST and OOD could remain untouched.
+
+This is important because using TEST performance to design the routing rule would make the TEST set part of the model-selection process.
+
+The rule was therefore **frozen** after the validation investigation.
+
+---
+
+# 12. Final Hybrid Evaluation on TEST and OOD
+
+After freezing `congestion_flag`, the rule was applied unchanged to the untouched TEST and OOD datasets.
+
+No validation data were loaded by the final evaluation script.
+
+No threshold was re-derived.
+
+No model was retrained.
+
+No recalibration was performed.
+
+No routing rule was changed after seeing TEST/OOD results.
+
+## TEST
+
+| Metric | Random Forest | HistGradientBoosting | Hybrid |
+|---|---:|---:|---:|
+| MAE | 20.0419 | **18.7068** | 18.8554 |
+| RMSE | 49.1248 | **44.6308** | 46.2776 |
+| R² | 0.9264 | **0.9392** | 0.9347 |
+
+The hybrid improved over Random Forest:
+
+- MAE improvement: 1.1865 m
+- RMSE improvement: 2.8473 m
+- R² improvement: 0.0083
+
+However, it did not outperform HistGradientBoosting:
+
+- MAE: hybrid was 0.1485 m worse
+- RMSE: hybrid was 1.6468 m worse
+- R²: hybrid was 0.0046 lower
+
+---
+
+## OOD
+
+| Metric | Random Forest | HistGradientBoosting | Hybrid |
+|---|---:|---:|---:|
+| MAE | 36.2399 | **34.7573** | 35.0366 |
+| RMSE | 66.5836 | **63.1071** | 64.5130 |
+| R² | 0.8930 | **0.9038** | 0.8995 |
+
+Again, the hybrid improved over Random Forest but remained worse than HistGradientBoosting:
+
+- MAE: hybrid was 0.2793 m worse
+- RMSE: hybrid was 1.4058 m worse
+- R²: hybrid was 0.0043 lower
+
+---
+
+# 13. Why the Hybrid Was Rejected
+
+The hybrid experiment was not unsuccessful. It demonstrated that the models have complementary strengths and that a simple observable traffic-state rule can improve Random Forest.
+
+However, the purpose of model selection is to choose the model that performs best on unseen data while avoiding unnecessary complexity.
+
+The frozen hybrid did not outperform HistGradientBoosting on either untouched TEST or OOD.
+
+Therefore, the hybrid routing architecture was not selected as the final model.
+
+The decision is:
+
+> **Use HistGradientBoosting as the final baseline model rather than adding a routing layer between Random Forest and HistGradientBoosting.**
+
+This is preferable because it:
+
+- performs better on TEST
+- performs better on OOD
+- avoids additional routing logic
+- avoids maintaining two prediction models in the final baseline pipeline
+- provides a simpler controller integration path
+
+---
+
+# 14. Final Baseline Model Selection
+
+The final baseline model is:
+
+## HistGradientBoosting — Layer 2
+
+Target:
+
+`true_queue_length_m`
+
+Final baseline TEST performance:
+
+- **MAE:** 18.7068 m
+- **RMSE:** 44.6308 m
+- **R²:** 0.9392
+
+Final baseline OOD performance:
+
+- **MAE:** 34.7573 m
+- **RMSE:** 63.1071 m
+- **R²:** 0.9038
+
+The model was selected because it provided the strongest overall held-out performance among the seven baseline models.
+
+It also performed better than the frozen hybrid on both TEST and OOD.
+
+---
+
+# 15. Important Interpretation of the Current Result
+
+HistGradientBoosting was first selected as the strongest baseline model, then subjected to validation-only hyperparameter tuning. The tuning process did not produce a held-out TEST/OOD improvement over the original baseline that justified replacing it, so the **original p11 HistGradientBoosting baseline remains the selected final model for the current experiment**.
+
+The distinction is:
 
 ```text
-RMSE = 20.229983
-R²   = 0.972479
+Seven baseline models
+        ↓
+HistGradientBoosting selected as strongest baseline
+        ↓
+Validation-only HGB tuning
+        ↓
+Held-out TEST/OOD evaluation
+        ↓
+Original p11 HGB baseline retained as final model
 ```
 
-which were the strongest values within the qualifying MAE group.
-
-Therefore, Trial 7 was selected as the frozen tuned configuration for held-out evaluation.
-
-## 7. Final Trial 7 Held-Out Evaluation
-
-Trial 7 was then trained on TRAIN only and evaluated on TEST and OOD.
-
-The selected configuration was:
-
-```text
-learning_rate      = 0.025034
-max_iter           = 369
-max_leaf_nodes     = 52
-min_samples_leaf   = 35
-l2_regularization  = 0.502603
-max_depth          = 10
-early_stopping     = False
-random_state       = 42
-```
-
-### TEST
-
-Original HistGradientBoosting baseline:
-
-```text
-MAE  = 18.706834
-RMSE = 44.630782
-R²   = 0.939220
-```
-
-Trial 7:
-
-```text
-MAE  = 19.152881
-RMSE = 46.303357
-R²   = 0.934579
-```
-
-Relative to the original baseline:
-
-```text
-MAE  = 2.38% worse
-RMSE = 3.75% worse
-R²   = 0.004641 lower
-```
-
-Therefore, Trial 7 did not improve held-out TEST performance.
-
-### OOD
-
-Original HistGradientBoosting baseline:
-
-```text
-MAE  = 34.757319
-RMSE = 63.107135
-R²   = 0.903846
-```
-
-Trial 7:
-
-```text
-MAE  = 34.302741
-RMSE = 63.247887
-R²   = 0.903417
-```
-
-Relative to the original baseline:
-
-```text
-MAE  = 1.31% better
-RMSE = 0.22% worse
-R²   = 0.000429 lower
-```
-
-The OOD result was therefore mixed rather than a clear improvement.
-
-## 8. Verification of the Dataset Split
-
-The scenario-level split was explicitly verified before interpreting the held-out results.
-
-```text
-TRAIN
-scenario_high_demand
-scenario_left_turn_heavy
-scenario_low_demand
-scenario_normal_balanced
-
-VALIDATION
-scenario_north_heavy
-scenario_straight_heavy
-
-TEST
-scenario_east_west_heavy
-scenario_south_heavy
-
-OOD
-scenario_burst_demand_OOD
-scenario_heavy_vehicle_OOD
-scenario_north_extreme_OOD
-scenario_very_high_demand_OOD
-```
-
-The row counts were:
-
-```text
-TRAIN       = 11,536
-VALIDATION  =  5,768
-TEST        =  5,768
-OOD         = 11,536
-```
-
-The matching row counts are explained by the equal number of rows contributed by each scenario rather than by an accidental split duplication.
-
-## 9. Scenario-Level Analysis
-
-To determine why the validation improvement did not transfer to TEST/OOD, Trial 7 was compared against the exact original baseline artifact separately for every TEST and OOD scenario.
-
-The original baseline artifact was loaded directly rather than reconstructed or retrained.
-
-The aggregate consistency check reproduced the official baseline values exactly, confirming that the scenario-level comparison was performed against the correct baseline.
-
-### TEST scenarios
-
-For `scenario_east_west_heavy`:
-
-```text
-MAE change  = -2.55%
-RMSE change = -3.87%
-R² change   = -0.004575
-```
-
-For `scenario_south_heavy`:
-
-```text
-MAE change  = -2.20%
-RMSE change = -3.64%
-R² change   = -0.004860
-```
-
-Trial 7 therefore degraded performance on both TEST scenarios.
-
-### OOD scenarios
-
-For `scenario_burst_demand_OOD`:
-
-```text
-MAE change  = -1.02%
-RMSE change = -1.19%
-R² change   = -0.004075
-```
-
-For `scenario_heavy_vehicle_OOD`:
-
-```text
-MAE change  = +4.68%
-RMSE change = +3.21%
-R² change   = +0.009113
-```
-
-For `scenario_north_extreme_OOD`:
-
-```text
-MAE change  = +4.60%
-RMSE change = +3.98%
-R² change   = +0.001717
-```
-
-For `scenario_very_high_demand_OOD`:
-
-```text
-MAE change  = -0.02%
-RMSE change = -2.32%
-R² change   = -0.007236
-```
-
-The OOD behavior was therefore mixed: Trial 7 improved performance for heavy-vehicle and north-extreme conditions, but degraded performance for burst-demand and very-high-demand conditions.
-
-## 10. Interpretation
-
-The results provide evidence of a distribution mismatch between validation and held-out scenarios.
-
-Validation contains:
-
-```text
-north_heavy
-straight_heavy
-```
-
-while TEST contains:
-
-```text
-east_west_heavy
-south_heavy
-```
-
-and OOD contains deliberately different stress regimes:
-
-```text
-burst_demand_OOD
-very_high_demand_OOD
-north_extreme_OOD
-heavy_vehicle_OOD
-```
-
-Consequently, the validation-selected Trial 7 configuration achieved a lower validation MAE but did not generalize better to the TEST scenarios.
-
-However, the results do not support the stronger claim that "heavier traffic causes Trial 7 to fail." Trial 7 actually improved considerably on the `heavy_vehicle_OOD` and `north_extreme_OOD` scenarios.
-
-The more defensible interpretation is:
-
-> The validation-selected hyperparameters improved performance for the validation distribution but did not provide a consistent improvement across different held-out traffic regimes. This indicates sensitivity to scenario distribution rather than a uniformly better model.
-
-## 11. Final Model Decision
-
-Hyperparameter tuning is considered complete for the current HistGradientBoosting experiment.
-
-Trial 7 remains the **winner of validation-based tuning**, but it is **not selected over the original baseline as the final model** because it failed to improve TEST performance and did not provide a consistent improvement on OOD.
-
-The original HistGradientBoosting baseline remains the stronger generalizing model for the current experiment.
-
-This conclusion is based on:
-
-- verified scenario-level train/validation/test/OOD separation;
-- exact reproduction of the original baseline artifact's recorded TEST/OOD metrics;
-- validation-only hyperparameter selection;
-- held-out TEST evaluation showing consistent degradation for Trial 7;
-- OOD evaluation showing mixed rather than uniformly improved performance.
-
-Further rounds of hyperparameter tuning will not be performed merely to optimize against the already observed TEST results, because doing so would progressively turn TEST into another tuning set.
-
-## 12. Next Stage
-
-The model-selection stage is now frozen.
-
-The selected model for the next ASTRID experiment is the **original HistGradientBoosting baseline**.
-
-The planned GPS-penetration sensitivity experiment should be conducted separately after model selection. The selected model should remain fixed while GPS penetration is varied to study how sensing availability affects queue-estimation performance.
+The penetration experiments documented below are separate from model selection. They keep the selected model fixed when measuring sensitivity to GPS availability.
+
+---
+
+# 16. GPS Penetration Sensitivity and p50 Training-Distribution Experiment
+
+The primary sensing condition for the model-comparison experiment is **11% GPS penetration**. A separate sensitivity study then held the original p11-trained HistGradientBoosting model fixed and evaluated it at 5%, 11%, 25%, and 50% GPS penetration.
+
+### 16.1 Frozen-model penetration sensitivity
+
+| GPS penetration | TEST MAE (m) | TEST RMSE (m) | TEST R² | OOD MAE (m) | OOD RMSE (m) | OOD R² |
+|---:|---:|---:|---:|---:|---:|---:|
+| 5% | 41.6704 | 93.4249 | 0.7337 | 61.7752 | 100.5036 | 0.7561 |
+| 11% | 18.7068 | 44.6308 | 0.9392 | 34.7573 | 63.1071 | 0.9038 |
+| 25% | **10.5446** | **25.8147** | **0.9797** | **19.4050** | **40.0090** | **0.9614** |
+| 50% | 16.5201 | 39.8833 | 0.9515 | 28.9307 | 57.6715 | 0.9197 |
+
+The frozen p11-trained model therefore performs best at **25% GPS penetration** among the tested sensing conditions. Performance is not monotonic with penetration: the 50% condition is worse than 25%, although it remains better than 11% on the aggregate metrics. This experiment does **not** imply that 50% GPS is intrinsically worse; it measures the behavior of a model trained at 11% when the sensing distribution changes.
+
+### 16.2 Diagnostic of the 25% → 50% change
+
+A diagnostic comparison of p25 and p50 showed that 50% provides substantially greater probe coverage while also changing the distributions of GPS-derived features. For example, mean probe count increased from 5.56 to 11.22 on TEST, while the zero-probe rate fell from 24.72% to 8.20%. At the same time, several distance and temporal probe features changed in their means, medians, variability, and missingness.
+
+The evidence therefore supports **feature-distribution shift under increased GPS penetration as a plausible explanation for the frozen-model degradation**, but the diagnostic alone does not establish a single causal mechanism.
+
+### 16.3 p50-trained HGB mismatch probe
+
+To distinguish sensing quality from training-distribution mismatch, a separate HistGradientBoosting model was trained **from scratch on p50 TRAIN only**, using the same original baseline configuration as the p11 baseline. The scenario split and feature schema were verified to match the existing experiment, and TEST/OOD were not used for tuning.
+
+The results were:
+
+| Model / evaluation condition | TEST MAE (m) | TEST RMSE (m) | TEST R² | OOD MAE (m) | OOD RMSE (m) | OOD R² |
+|---|---:|---:|---:|---:|---:|---:|
+| p11-trained → p50 | 16.5201 | 39.8833 | 0.9515 | 28.9307 | 57.6715 | 0.9197 |
+| **p50-trained → p50** | **7.0334** | **16.9303** | **0.9913** | **21.2938** | **41.5141** | **0.9584** |
+
+Training directly on p50 reduced TEST MAE by **57.43%** and OOD MAE by **26.40%** relative to applying the frozen p11-trained model to p50. This strongly supports the interpretation that the earlier p50 degradation was substantially a **training-distribution mismatch effect** rather than evidence that higher GPS penetration is inherently harmful.
+
+This p50-trained model is an additional experimental artifact and **does not replace the selected p11 final model**. Its purpose is diagnosis, not model selection.
+
+---
+
+# 17. Summary
+
+The machine-learning baseline stage produced the following conclusions:
+
+1. **Layer 2 substantially improves queue-length estimation** compared with Layer 1.
+2. Seven baseline models were evaluated:
+   - Random Forest
+   - Extra Trees
+   - XGBoost
+   - LightGBM
+   - CatBoost
+   - HistGradientBoosting
+   - MLP
+3. **HistGradientBoosting produced the strongest overall TEST and OOD performance.**
+4. Error analysis showed that short, directly observable queues are much easier to estimate than long queues that reach the camera boundary.
+5. Random Forest was particularly strong for short queues.
+6. HistGradientBoosting was stronger in difficult large-queue/camera-edge conditions.
+7. A hybrid routing strategy named `congestion_flag` was therefore investigated.
+8. `congestion_flag` was selected using VALIDATION data only.
+9. The frozen hybrid improved over Random Forest on TEST and OOD.
+10. However, the hybrid did not outperform HistGradientBoosting on either TEST or OOD.
+11. **HistGradientBoosting was therefore retained as the final baseline model.**
+12. HistGradientBoosting hyperparameter tuning was completed using validation-only selection, followed by held-out TEST/OOD evaluation.
+13. The original p11 HistGradientBoosting baseline remains the selected final model for the current experiment.
+14. Frozen-model GPS sensitivity showed best aggregate performance at 25% penetration, with non-monotonic performance at 50%.
+15. A separate p50-trained HGB experiment substantially improved p50 performance, supporting a training-distribution mismatch interpretation.
+16. Controller integration should use the selected final p11 model unless a later, explicitly scoped experiment changes that decision.
+
+---
+
+## Current ML Pipeline Status
+
+| Stage | Status |
+|---|---|
+| Dataset construction | Complete |
+| Dataset QA | Complete |
+| Train/validation/test/OOD assembly | Complete |
+| Seven baseline models | Complete |
+| Layer 1 vs Layer 2 comparison | Complete |
+| Baseline model comparison | Complete |
+| Error analysis | Complete |
+| Model disagreement analysis | Complete |
+| Validation-only hybrid investigation | Complete |
+| Frozen hybrid TEST/OOD evaluation | Complete |
+| Baseline model selection | **HistGradientBoosting** |
+| Hyperparameter tuning | Complete |
+| GPS penetration sensitivity | Complete |
+| p50 training-distribution mismatch experiment | Complete |
+| Controller integration | Pending |
+| Closed-loop SUMO evaluation | Pending |

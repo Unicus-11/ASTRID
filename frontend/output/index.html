@@ -52,11 +52,13 @@
     <div class="savings-grid">
       <div class="savings-box">
         <div class="savings-label">Fuel Wastage</div>
+        <img class="savings-icon fuel" src="images/fuel.png" alt="" aria-hidden="true">
         <div class="savings-value" id="fuelSaving">--</div>
         <div class="savings-sub" id="fuelSavingSub">--</div>
       </div>
       <div class="savings-box">
         <div class="savings-label">Emissions</div>
+        <img class="savings-icon emissions" src="images/leaf.png" alt="" aria-hidden="true">
         <div class="savings-value" id="emissionSaving">--</div>
         <div class="savings-sub" id="emissionSavingSub">--</div>
       </div>
@@ -100,7 +102,7 @@
 
   <main class="center">
     <h3>Split Live Visualization <span class="hint">(replayed from a saved comparison.py log, not a live SUMO feed)</span></h3>
-    <div class="legend-note">Fill color = congestion severity (blue &rarr; yellow &rarr; red). Border = right-of-way (green=go, gray=waiting, amber=transition).</div>
+    <div class="legend-note">Vehicle fill = type when per-vehicle data is available (bike/car/hgv/bus, sized from the scenario's own vType lengths), else right-of-way status. Outline/fill status color = right-of-way (green=go, red=waiting, amber=transition).</div>
     <div class="split">
       <div class="panel">
         <div class="panel-title normal">NORMAL CONTROLLER (Fixed-Time)</div>

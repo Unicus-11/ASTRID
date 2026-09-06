@@ -1,0 +1,18 @@
+{
+  "results": {
+    "random_forest": {
+      "val_accuracy": 0.9947169811320755,
+      "val_f1_macro": 0.9903020632817818
+    },
+    "hist_gradient_boosting": {
+      "val_accuracy": 0.9924528301886792,
+      "val_f1_macro": 0.9859613656783468
+    },
+    "logistic_regression": {
+      "val_accuracy": 0.8022641509433962,
+      "val_f1_macro": 0.7301383706467661
+    }
+  },
+  "best_model": "random_forest",
+  "best_model_path": "controller\\forest_models\\best_model.joblib"
+}
