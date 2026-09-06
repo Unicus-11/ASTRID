@@ -12,12 +12,22 @@
   <div class="brand">ASTRID</div>
   <div class="date" id="today"></div>
   <div class="title">ASTRID TRAFFIC CONTROL CENTER - JUNCTION COMPARISON</div>
+
+  <div class="radar-mini" aria-hidden="true">
+    <div class="radar-mini-box">
+      <div class="radar-scan"></div>
+      <div class="radar-dot"></div>
+    </div>
+    <span class="radar-mini-label">LIVE</span>
+  </div>
+
   <div class="tag">SIH 2026</div>
 </header>
 
 <div class="layout">
 
-  <aside class="sidebar left">
+  <aside class="sidebar">
+
     <h3>Select Scenario</h3>
     <select id="scenarioSelect"></select>
 
@@ -35,6 +45,57 @@
     <h3>Simulation Speed</h3>
     <input type="range" id="speed" min="1" max="100" value="10">
     <div class="timeline-labels"><span>1x</span><span id="speedVal">10x</span><span>100x</span></div>
+
+    <div class="sidebar-divider"></div>
+
+    <h3>Simulated Savings <span class="hint">(illustrative annualized estimate)</span></h3>
+    <div class="savings-grid">
+      <div class="savings-box">
+        <div class="savings-label">Fuel Wastage</div>
+        <div class="savings-value" id="fuelSaving">--</div>
+        <div class="savings-sub" id="fuelSavingSub">--</div>
+      </div>
+      <div class="savings-box">
+        <div class="savings-label">Emissions</div>
+        <div class="savings-value" id="emissionSaving">--</div>
+        <div class="savings-sub" id="emissionSavingSub">--</div>
+      </div>
+    </div>
+    <div class="assumptions-note">
+      Assumes ~7m queue &asymp; 1 idling vehicle, 0.6 L/hr idle burn, junction active 16 hrs/day,
+      &#8377;100/L, 2.31 kg CO&#8322;/L. Adjustable in script.js.
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <h3>ASTRID Pipeline</h3>
+    <div class="pipeline-box">
+      <div class="pipeline-label">HGB-Estimated Total Queue (not ground truth)</div>
+      <canvas id="chartQueueTimeline" height="120"></canvas>
+    </div>
+    <div class="pipeline-box">
+      <div class="pipeline-label">Random Forest Controller: Action Timeline</div>
+      <canvas id="actionTimeline" width="300" height="40"></canvas>
+    </div>
+
+    <div class="placeholder-box">
+      <div class="placeholder-title">PINN Dynamics Module</div>
+      <div class="placeholder-note">Not yet implemented &mdash; placeholder for future queue-dynamics model.</div>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <h3>Safety Layer Status</h3>
+    <div class="status-box">
+      <div class="status-row"><span class="dot green"></span> Min/Max Green Enforcement (actions.py): Active</div>
+      <div class="status-row">Requested transitions this run: <span id="reqCount">--</span></div>
+      <div class="status-row">Forced transitions (MAX_GREEN cap): <span id="forcedCount">--</span></div>
+    </div>
+    <div class="placeholder-box">
+      <div class="placeholder-title">3-Tier Fail-Safe</div>
+      <div class="placeholder-note">Not yet implemented &mdash; placeholder for future redundancy tiers.</div>
+    </div>
+
   </aside>
 
   <main class="center">
@@ -89,52 +150,6 @@
       <div class="summary-verdict" id="summaryVerdict">--</div>
     </div>
   </main>
-
-  <aside class="sidebar right">
-    <h3>Simulated Savings <span class="hint">(illustrative annualized estimate)</span></h3>
-    <div class="savings-grid">
-      <div class="savings-box">
-        <div class="savings-label">Fuel Wastage</div>
-        <div class="savings-value" id="fuelSaving">--</div>
-        <div class="savings-sub" id="fuelSavingSub">--</div>
-      </div>
-      <div class="savings-box">
-        <div class="savings-label">Emissions</div>
-        <div class="savings-value" id="emissionSaving">--</div>
-        <div class="savings-sub" id="emissionSavingSub">--</div>
-      </div>
-    </div>
-    <div class="assumptions-note">
-      Assumes ~7m queue &asymp; 1 idling vehicle, 0.6 L/hr idle burn, junction active 16 hrs/day,
-      &#8377;100/L, 2.31 kg CO&#8322;/L. Adjustable in script.js.
-    </div>
-
-    <h3>ASTRID Pipeline</h3>
-    <div class="pipeline-box">
-      <div class="pipeline-label">HGB-Estimated Total Queue (not ground truth)</div>
-      <canvas id="chartQueueTimeline" height="120"></canvas>
-    </div>
-    <div class="pipeline-box">
-      <div class="pipeline-label">Random Forest Controller: Action Timeline</div>
-      <canvas id="actionTimeline" width="300" height="40"></canvas>
-    </div>
-
-    <div class="placeholder-box">
-      <div class="placeholder-title">PINN Dynamics Module</div>
-      <div class="placeholder-note">Not yet implemented &mdash; placeholder for future queue-dynamics model.</div>
-    </div>
-
-    <h3>Safety Layer Status</h3>
-    <div class="status-box">
-      <div class="status-row"><span class="dot green"></span> Min/Max Green Enforcement (actions.py): Active</div>
-      <div class="status-row">Requested transitions this run: <span id="reqCount">--</span></div>
-      <div class="status-row">Forced transitions (MAX_GREEN cap): <span id="forcedCount">--</span></div>
-    </div>
-    <div class="placeholder-box">
-      <div class="placeholder-title">3-Tier Fail-Safe</div>
-      <div class="placeholder-note">Not yet implemented &mdash; placeholder for future redundancy tiers.</div>
-    </div>
-  </aside>
 
 </div>
 
