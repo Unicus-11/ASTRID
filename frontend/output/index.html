@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ASTRID Traffic Control Center - Junction Comparison</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">ASTRID</div>
+  <div class="date" id="today"></div>
+  <div class="title">ASTRID TRAFFIC CONTROL CENTER - JUNCTION COMPARISON</div>
+  <div class="tag">SIH 2026</div>
+</header>
+
+<div class="layout">
+
+  <aside class="sidebar left">
+    <h3>Select Scenario</h3>
+    <select id="scenarioSelect"></select>
+
+    <h3>Simulation Timeline</h3>
+    <input type="range" id="timeline" min="0" max="0" value="0">
+    <div class="timeline-labels"><span id="timeStart">--</span><span id="timeEnd">--</span></div>
+
+    <h3>Playback Control</h3>
+    <div class="playback-buttons">
+      <button id="btnPlay">Play</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnStep">Step</button>
+    </div>
+
+    <h3>Simulation Speed</h3>
+    <input type="range" id="speed" min="1" max="100" value="10">
+    <div class="timeline-labels"><span>1x</span><span id="speedVal">10x</span><span>100x</span></div>
+  </aside>
+
+  <main class="center">
+    <h3>Split Live Visualization <span class="hint">(replayed from a saved comparison.py log, not a live SUMO feed)</span></h3>
+    <div class="legend-note">Fill color = congestion severity (blue &rarr; yellow &rarr; red). Border = right-of-way (green=go, gray=waiting, amber=transition).</div>
+    <div class="split">
+      <div class="panel">
+        <div class="panel-title normal">NORMAL CONTROLLER (Fixed-Time)</div>
+        <canvas id="canvasNormal" width="480" height="360"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-title astrid">ASTRID AI CONTROLLER (Random Forest)</div>
+        <canvas id="canvasAstrid" width="480" height="360"></canvas>
+      </div>
+    </div>
+
+    <h3>Performance Analytics (KPIs)</h3>
+    <div class="kpi-grid">
+      <div class="kpi-box"><canvas id="chartWait"></canvas></div>
+      <div class="kpi-box"><canvas id="chartSpeed"></canvas></div>
+      <div class="kpi-box"><canvas id="chartQueue"></canvas></div>
+      <div class="kpi-box"><canvas id="chartThroughput"></canvas></div>
+    </div>
+
+    <h3>Performance Over Time <span class="hint">(full episode, Normal vs ASTRID)</span></h3>
+    <div class="overtime-grid">
+      <div class="kpi-box"><div class="overtime-title">Queue Length (m)</div><canvas id="overQueue"></canvas></div>
+      <div class="kpi-box"><div class="overtime-title">Delay (s)</div><canvas id="overDelay"></canvas></div>
+      <div class="kpi-box"><div class="overtime-title">Throughput (veh/hr, 60s rolling)</div><canvas id="overThroughput"></canvas></div>
+    </div>
+
+    <h3>ASTRID Performance &mdash; Session Summary</h3>
+    <div class="summary-box">
+      <div class="summary-metrics">
+        <div class="summary-metric">
+          <div class="summary-arrow" id="sumQueueArrow">--</div>
+          <div class="summary-label">Avg Queue</div>
+        </div>
+        <div class="summary-metric">
+          <div class="summary-arrow" id="sumWaitArrow">--</div>
+          <div class="summary-label">Avg Delay</div>
+        </div>
+        <div class="summary-metric">
+          <div class="summary-arrow" id="sumSpeedArrow">--</div>
+          <div class="summary-label">Avg Speed</div>
+        </div>
+        <div class="summary-metric">
+          <div class="summary-arrow" id="sumThroughputArrow">--</div>
+          <div class="summary-label">Throughput</div>
+        </div>
+      </div>
+      <div class="summary-verdict" id="summaryVerdict">--</div>
+    </div>
+  </main>
+
+  <aside class="sidebar right">
+    <h3>Simulated Savings <span class="hint">(illustrative annualized estimate)</span></h3>
+    <div class="savings-grid">
+      <div class="savings-box">
+        <div class="savings-label">Fuel Wastage</div>
+        <div class="savings-value" id="fuelSaving">--</div>
+        <div class="savings-sub" id="fuelSavingSub">--</div>
+      </div>
+      <div class="savings-box">
+        <div class="savings-label">Emissions</div>
+        <div class="savings-value" id="emissionSaving">--</div>
+        <div class="savings-sub" id="emissionSavingSub">--</div>
+      </div>
+    </div>
+    <div class="assumptions-note">
+      Assumes ~7m queue &asymp; 1 idling vehicle, 0.6 L/hr idle burn, junction active 16 hrs/day,
+      &#8377;100/L, 2.31 kg CO&#8322;/L. Adjustable in script.js.
+    </div>
+
+    <h3>ASTRID Pipeline</h3>
+    <div class="pipeline-box">
+      <div class="pipeline-label">HGB-Estimated Total Queue (not ground truth)</div>
+      <canvas id="chartQueueTimeline" height="120"></canvas>
+    </div>
+    <div class="pipeline-box">
+      <div class="pipeline-label">Random Forest Controller: Action Timeline</div>
+      <canvas id="actionTimeline" width="300" height="40"></canvas>
+    </div>
+
+    <div class="placeholder-box">
+      <div class="placeholder-title">PINN Dynamics Module</div>
+      <div class="placeholder-note">Not yet implemented &mdash; placeholder for future queue-dynamics model.</div>
+    </div>
+
+    <h3>Safety Layer Status</h3>
+    <div class="status-box">
+      <div class="status-row"><span class="dot green"></span> Min/Max Green Enforcement (actions.py): Active</div>
+      <div class="status-row">Requested transitions this run: <span id="reqCount">--</span></div>
+      <div class="status-row">Forced transitions (MAX_GREEN cap): <span id="forcedCount">--</span></div>
+    </div>
+    <div class="placeholder-box">
+      <div class="placeholder-title">3-Tier Fail-Safe</div>
+      <div class="placeholder-note">Not yet implemented &mdash; placeholder for future redundancy tiers.</div>
+    </div>
+  </aside>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
