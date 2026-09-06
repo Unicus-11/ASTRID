@@ -11,6 +11,128 @@ let playing = false;
 let playTimer = null;
 const charts = {};
 
+// ---------------------------------------------------------------------------
+// PPO schema adapter
+// ---------------------------------------------------------------------------
+// The dashboard was built against frontend/output/<scenario>.json ("normal" /
+// "astrid" keys). PPO results now live separately in
+// frontend/output/ppo_model/<scenario>.json under a "ppo" key. We were not
+// able to inspect an actual ppo_model/*.json file while writing this adapter,
+// so instead of assuming the field names match exactly, this adapter tries a
+// list of plausible aliases for every field the renderer needs and logs a
+// console warning (once) for anything it can't find. It never invents values
+// -- a field that can't be found is left undefined, and the existing
+// approximate-queue fallback (drawArmVehiclesApprox) kicks in automatically
+// wherever per-vehicle data is missing, exactly as it already does for older
+// RF logs that predate queue_vehicles.
+//
+// If you see "[PPO adapter]" warnings in the browser console, open one
+// ppo_model/<scenario>.json file, find the real field names, and add them to
+// the candidate lists below.
+
+const FRAME_FIELD_CANDIDATES = {
+  t: ['t', 'time', 'timestamp', 'sim_time'],
+  phase: ['phase', 'signal_phase', 'current_phase'],
+  vehicles: ['vehicles', 'n_vehicles', 'vehicle_count', 'num_vehicles'],
+  queues: ['queues', 'queue_lengths', 'queue_m'],
+  mean_wait_s: ['mean_wait_s', 'avg_wait_s', 'mean_wait'],
+  mean_speed_mps: ['mean_speed_mps', 'avg_speed_mps', 'mean_speed'],
+  arrived: ['arrived', 'arrivals', 'completed'],
+  action: ['action', 'controller_action', 'agent_action'], // optional, no warning if absent
+};
+
+// queue_vehicles is the per-vehicle payload that makes real movement possible.
+// Tried separately (not in FRAME_FIELD_CANDIDATES) because its absence is not
+// itself an error -- the dashboard already has an approximate fallback for
+// that case -- but we still want a console note so it's visible during testing.
+const QUEUE_VEHICLES_KEY_CANDIDATES = ['queue_vehicles', 'vehicles_detail', 'per_vehicle', 'vehicle_positions'];
+
+const VEH_FIELD_CANDIDATES = {
+  edge: ['edge', 'approach', 'from_edge'],
+  lane: ['lane', 'lane_index', 'lane_id'],
+  dist_to_stop_m: ['dist_to_stop_m', 'distance_to_stop_m', 'dist_to_stop', 'dist_m'],
+  type: ['type', 'vtype', 'vehicle_type'],
+};
+
+const KPI_FIELD_CANDIDATES = {
+  avg_wait_s: ['avg_wait_s', 'mean_wait_s', 'average_wait_s'],
+  avg_speed_kmh: ['avg_speed_kmh', 'average_speed_kmh'],
+  avg_queue_m: ['avg_queue_m', 'average_queue_m'],
+  throughput_veh_per_hr: ['throughput_veh_per_hr', 'throughput_vph'],
+  requested_transitions: ['requested_transitions'],
+  forced_transitions: ['forced_transitions'],
+};
+
+const ppoAdapterWarnings = new Set();
+
+function pickField(obj, candidates) {
+  for (const key of candidates) {
+    if (obj[key] !== undefined) return obj[key];
+  }
+  return undefined;
+}
+
+function adaptPpoFrame(rawFrame) {
+  const out = {};
+  for (const [canon, candidates] of Object.entries(FRAME_FIELD_CANDIDATES)) {
+    const val = pickField(rawFrame, candidates);
+    if (val === undefined && canon !== 'action') {
+      ppoAdapterWarnings.add(`frame missing "${canon}" (tried: ${candidates.join(', ')})`);
+    }
+    out[canon] = val;
+  }
+  if (!out.queues || typeof out.queues !== 'object') out.queues = {};
+
+  const rawQV = pickField(rawFrame, QUEUE_VEHICLES_KEY_CANDIDATES);
+  if (Array.isArray(rawQV) && rawQV.length) {
+    const adapted = rawQV.map(v => {
+      const vv = {};
+      for (const [canon, candidates] of Object.entries(VEH_FIELD_CANDIDATES)) {
+        vv[canon] = pickField(v, candidates);
+      }
+      return vv;
+    }).filter(v => v.edge !== undefined && v.lane !== undefined && v.dist_to_stop_m !== undefined);
+    if (adapted.length) {
+      out.queue_vehicles = adapted;
+    } else {
+      ppoAdapterWarnings.add('queue_vehicles-like array found but entries are missing edge/lane/dist_to_stop_m -- falling back to approximate queue rendering (no real per-vehicle positions used).');
+    }
+  } else {
+    ppoAdapterWarnings.add('no per-vehicle position array found on frames (tried: ' + QUEUE_VEHICLES_KEY_CANDIDATES.join(', ') + ') -- PPO panel will use the approximate queue-bar fallback, not real per-vehicle movement.');
+  }
+  return out;
+}
+
+function adaptPpoKpis(rawKpis) {
+  const out = {};
+  for (const [canon, candidates] of Object.entries(KPI_FIELD_CANDIDATES)) {
+    const val = pickField(rawKpis, candidates);
+    if (val !== undefined) out[canon] = val;
+    // Deliberately no fallback/invention here -- missing KPI fields are left
+    // undefined and surfaced as "--" in the UI (see kpiOrCompute / '??' below).
+  }
+  return out;
+}
+
+function adaptPpoPayload(rawPpo, scenarioName) {
+  if (!rawPpo || !Array.isArray(rawPpo.frames)) {
+    throw new Error('ppo_model/' + scenarioName + '.json does not contain a valid "ppo.frames" array');
+  }
+  ppoAdapterWarnings.clear();
+  const frames = rawPpo.frames.map(adaptPpoFrame);
+  const kpis = adaptPpoKpis(rawPpo.kpis || {});
+  if (ppoAdapterWarnings.size) {
+    console.warn('[PPO adapter] ' + scenarioName + ': some fields did not match the expected schema. ' +
+      'This does NOT necessarily mean something is broken -- but if the PPO panel looks wrong, check these against the real ppo_model/' + scenarioName + '.json:');
+    ppoAdapterWarnings.forEach(w => console.warn('  - ' + w));
+  }
+  return { frames, kpis };
+}
+
+// ---------------------------------------------------------------------------
+// Scenario / index loading
+// ---------------------------------------------------------------------------
+
 async function loadIndex() {
   const res = await fetch('index.json');
   const idx = await res.json();
@@ -25,23 +147,33 @@ async function loadIndex() {
   select.addEventListener('change', e => loadScenario(e.target.value));
 }
 
-let cumQueueNormal = [], cumQueueAstrid = [];
-let cumWaitNormal = [], cumWaitAstrid = [];
-let cumSpeedNormal = [], cumSpeedAstrid = [];
-let cumArrivedNormal = [], cumArrivedAstrid = [];
-let runningMaxQueueNormal = [], runningMaxQueueAstrid = [];
+let cumQueueNormal = [], cumQueuePpo = [];
+let cumWaitNormal = [], cumWaitPpo = [];
+let cumSpeedNormal = [], cumSpeedPpo = [];
+let cumArrivedNormal = [], cumArrivedPpo = [];
+let runningMaxQueueNormal = [], runningMaxQueuePpo = [];
 
 function totalQueue(frame) {
   return Object.values(frame.queues).reduce((a, v) => a + (v || 0), 0);
 }
 
-// avg_queue_m is only present in JSON produced by the current comparison.py -- fall back to
-// computing it from frames directly so older logs don't produce NaN in the session summary.
-function avgQueueKpi(result) {
-  if (typeof result.kpis.avg_queue_m === 'number') return result.kpis.avg_queue_m;
-  const frames = result.frames;
-  return frames.reduce((a, f) => a + totalQueue(f), 0) / frames.length;
+function kpiOrCompute(result, key, computeFn) {
+  if (typeof result.kpis[key] === 'number') return result.kpis[key];
+  return computeFn(result.frames);
 }
+
+// avg_*_kpi helpers: prefer the logged KPI, else derive from frames directly so a
+// missing/renamed field never produces NaN in the session summary or KPI bars.
+// If frames themselves can't support the computation, the caller is responsible
+// for rendering "--" rather than a fabricated number.
+const avgQueueKpi = r => kpiOrCompute(r, 'avg_queue_m', frames => frames.reduce((a, f) => a + totalQueue(f), 0) / frames.length);
+const avgWaitKpi = r => kpiOrCompute(r, 'avg_wait_s', frames => frames.reduce((a, f) => a + (f.mean_wait_s || 0), 0) / frames.length);
+const avgSpeedKmhKpi = r => kpiOrCompute(r, 'avg_speed_kmh', frames => (frames.reduce((a, f) => a + (f.mean_speed_mps || 0), 0) / frames.length) * 3.6);
+const throughputKpi = r => kpiOrCompute(r, 'throughput_veh_per_hr', frames => {
+  const totalArrived = frames.reduce((a, f) => a + (f.arrived || 0), 0);
+  const elapsedHours = Math.max((frames[frames.length - 1].t - frames[0].t) / 3600, 1 / 3600);
+  return totalArrived / elapsedHours;
+});
 
 function buildPrefixSums() {
   const build = frames => {
@@ -49,21 +181,61 @@ function buildPrefixSums() {
     let sq = 0, sw = 0, ss = 0, sa = 0, mq = 0;
     frames.forEach(f => {
       sq += totalQueue(f); cq.push(sq);
-      sw += f.mean_wait_s; cw.push(sw);
-      ss += f.mean_speed_mps; cs.push(ss);
+      sw += (f.mean_wait_s || 0); cw.push(sw);
+      ss += (f.mean_speed_mps || 0); cs.push(ss);
       sa += (f.arrived || 0); ca.push(sa);
       mq = Math.max(mq, totalQueue(f)); rmq.push(mq);
     });
     return { cq, cw, cs, ca, rmq };
   };
-  const n = build(data.normal.frames), a = build(data.astrid.frames);
+  const n = build(data.normal.frames), p = build(data.ppo.frames);
   cumQueueNormal = n.cq; cumWaitNormal = n.cw; cumSpeedNormal = n.cs; cumArrivedNormal = n.ca; runningMaxQueueNormal = n.rmq;
-  cumQueueAstrid = a.cq; cumWaitAstrid = a.cw; cumSpeedAstrid = a.cs; cumArrivedAstrid = a.ca; runningMaxQueueAstrid = a.rmq;
+  cumQueuePpo = p.cq; cumWaitPpo = p.cw; cumSpeedPpo = p.cs; cumArrivedPpo = p.ca; runningMaxQueuePpo = p.rmq;
+}
+
+function showScenarioError(msg) {
+  const el = document.getElementById('scenarioError');
+  if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.textContent = msg;
+  console.error('[dashboard] ' + msg);
 }
 
 async function loadScenario(name) {
-  const res = await fetch(name + '.json');
-  data = await res.json();
+  showScenarioError(null);
+  let normalPayload, ppoPayloadRaw;
+  try {
+    const normalRes = await fetch(name + '.json');
+    if (!normalRes.ok) throw new Error('could not load ' + name + '.json (HTTP ' + normalRes.status + ')');
+    normalPayload = await normalRes.json();
+  } catch (err) {
+    showScenarioError('Normal controller data failed to load: ' + err.message);
+    return;
+  }
+
+  try {
+    const ppoRes = await fetch('ppo_model/' + name + '.json');
+    if (!ppoRes.ok) throw new Error('could not load ppo_model/' + name + '.json (HTTP ' + ppoRes.status + '). Has this scenario been run through the PPO model yet?');
+    ppoPayloadRaw = await ppoRes.json();
+  } catch (err) {
+    showScenarioError('PPO controller data failed to load: ' + err.message);
+    return;
+  }
+
+  let ppo;
+  try {
+    ppo = adaptPpoPayload(ppoPayloadRaw.ppo, name);
+  } catch (err) {
+    showScenarioError('PPO data for "' + name + '" could not be parsed: ' + err.message);
+    return;
+  }
+
+  data = {
+    scenario: name,
+    normal: normalPayload.normal,
+    ppo: ppo,
+  };
+
   frameIndex = 0;
   const timeline = document.getElementById('timeline');
   timeline.max = data.normal.frames.length - 1;
@@ -89,7 +261,7 @@ const kpiValueLabelPlugin = {
     const meta = chart.getDatasetMeta(0);
     meta.data.forEach((bar, i) => {
       const value = chart.data.datasets[0].data[i];
-      if (value == null) return;
+      if (value == null || Number.isNaN(value)) return;
       ctx.save();
       ctx.fillStyle = '#e6edf3';
       ctx.font = '600 12px Inter, "Segoe UI", sans-serif';
@@ -113,7 +285,7 @@ function renderKpiCharts() {
     if (charts[canvasId]) charts[canvasId].destroy();
     charts[canvasId] = new Chart(ctx, {
       type: 'bar',
-      data: { labels: ['Normal', 'ASTRID'], datasets: [{ label, data: [0, 0], backgroundColor: ['#c9c9c9', '#3ddc84'], borderRadius: 4, barPercentage: 0.55 }] },
+      data: { labels: ['Normal', 'PPO'], datasets: [{ label, data: [0, 0], backgroundColor: ['#c9c9c9', '#3ddc84'], borderRadius: 4, barPercentage: 0.55 }] },
       options: {
         animation: false,
         responsive: true,
@@ -147,20 +319,20 @@ function renderKpiCharts() {
 // unlike the end-of-run Session Summary further down the page.
 function updateKpiChartsLive(idx) {
   const n = idx + 1;
-  const waitN = cumWaitNormal[idx] / n, waitA = cumWaitAstrid[idx] / n;
-  const speedN = (cumSpeedNormal[idx] / n) * 3.6, speedA = (cumSpeedAstrid[idx] / n) * 3.6;
-  const queueN = runningMaxQueueNormal[idx], queueA = runningMaxQueueAstrid[idx];
+  const waitN = cumWaitNormal[idx] / n, waitP = cumWaitPpo[idx] / n;
+  const speedN = (cumSpeedNormal[idx] / n) * 3.6, speedP = (cumSpeedPpo[idx] / n) * 3.6;
+  const queueN = runningMaxQueueNormal[idx], queueP = runningMaxQueuePpo[idx];
   const elapsedHours = Math.max((data.normal.frames[idx].t - data.normal.frames[0].t) / 3600, 1 / 3600);
-  const thrN = cumArrivedNormal[idx] / elapsedHours, thrA = cumArrivedAstrid[idx] / elapsedHours;
+  const thrN = cumArrivedNormal[idx] / elapsedHours, thrP = cumArrivedPpo[idx] / elapsedHours;
 
-  charts.chartWait.data.datasets[0].data = [waitN, waitA]; charts.chartWait.update('none');
-  charts.chartSpeed.data.datasets[0].data = [speedN, speedA]; charts.chartSpeed.update('none');
-  charts.chartQueue.data.datasets[0].data = [queueN, queueA]; charts.chartQueue.update('none');
-  charts.chartThroughput.data.datasets[0].data = [thrN, thrA]; charts.chartThroughput.update('none');
+  charts.chartWait.data.datasets[0].data = [waitN, waitP]; charts.chartWait.update('none');
+  charts.chartSpeed.data.datasets[0].data = [speedN, speedP]; charts.chartSpeed.update('none');
+  charts.chartQueue.data.datasets[0].data = [queueN, queueP]; charts.chartQueue.update('none');
+  charts.chartThroughput.data.datasets[0].data = [thrN, thrP]; charts.chartThroughput.update('none');
 }
 
 function renderPipelineCharts() {
-  const frames = data.astrid.frames;
+  const frames = data.ppo.frames;
   const labels = frames.map(f => f.t);
   const totals = frames.map(f => Object.values(f.queues).reduce((a, v) => a + (v || 0), 0));
 
@@ -176,17 +348,29 @@ function renderPipelineCharts() {
     },
   });
 
+  // Action timeline: colors each frame by whether the PPO log records a phase-change
+  // "request" for that step. If PPO frames don't carry an action field at all (schema
+  // differs from the RF log's REQUEST_NEXT/HOLD action), we render a neutral timeline
+  // rather than inventing action values -- see the adapter warning logged at load time.
+  const hasAction = frames.some(f => f.action !== undefined);
   const actionCanvas = document.getElementById('actionTimeline');
   const actx = actionCanvas.getContext('2d');
   actx.clearRect(0, 0, actionCanvas.width, actionCanvas.height);
   const w = actionCanvas.width / frames.length;
   frames.forEach((f, i) => {
-    actx.fillStyle = f.action === 'REQUEST_NEXT' ? '#ff9d7a' : '#3d6fdc';
+    let color = '#3d6fdc';
+    if (hasAction) {
+      const isRequest = f.action === 'REQUEST_NEXT' || f.action === 1 || f.action === true;
+      color = isRequest ? '#ff9d7a' : '#3d6fdc';
+    } else {
+      color = '#5a6b80'; // neutral: no per-step action log available for PPO
+    }
+    actx.fillStyle = color;
     actx.fillRect(i * w, 0, Math.max(w, 1), actionCanvas.height);
   });
 
-  document.getElementById('reqCount').textContent = data.astrid.kpis.requested_transitions;
-  document.getElementById('forcedCount').textContent = data.astrid.kpis.forced_transitions;
+  document.getElementById('reqCount').textContent = data.ppo.kpis.requested_transitions ?? '--';
+  document.getElementById('forcedCount').textContent = data.ppo.kpis.forced_transitions ?? '--';
 }
 
 // Illustrative annualized savings estimate -- assumptions are documented in the dashboard's
@@ -202,10 +386,10 @@ function renderSavings() {
   if (!data) return;
   const n = frameIndex + 1;
   const avgNormal = cumQueueNormal[frameIndex] / n;
-  const avgAstrid = cumQueueAstrid[frameIndex] / n;
-  const queueReductionPct = avgNormal > 0 ? Math.max(0, (1 - avgAstrid / avgNormal) * 100) : 0;
+  const avgPpo = cumQueuePpo[frameIndex] / n;
+  const queueReductionPct = avgNormal > 0 ? Math.max(0, (1 - avgPpo / avgNormal) * 100) : 0;
 
-  const avgQueueDiffM = Math.max(0, avgNormal - avgAstrid);
+  const avgQueueDiffM = Math.max(0, avgNormal - avgPpo);
   const vehiclesSaved = avgQueueDiffM / METERS_PER_VEHICLE;
   const litersPerYear = vehiclesSaved * IDLE_FUEL_L_PER_HOUR * OPERATING_HOURS_PER_DAY * DAYS_PER_YEAR;
   const moneyPerYear = litersPerYear * FUEL_PRICE_PER_L;
@@ -220,9 +404,9 @@ function renderSavings() {
 function renderOverTimeCharts() {
   const labels = data.normal.frames.map(f => f.t);
   const queueNormal = data.normal.frames.map(totalQueue);
-  const queueAstrid = data.astrid.frames.map(totalQueue);
-  const waitNormal = data.normal.frames.map(f => f.mean_wait_s);
-  const waitAstrid = data.astrid.frames.map(f => f.mean_wait_s);
+  const queuePpo = data.ppo.frames.map(totalQueue);
+  const waitNormal = data.normal.frames.map(f => f.mean_wait_s || 0);
+  const waitPpo = data.ppo.frames.map(f => f.mean_wait_s || 0);
 
   const ROLL = 60; // seconds
   const rollingThroughput = frames => frames.map((_, i) => {
@@ -232,7 +416,7 @@ function renderOverTimeCharts() {
     return (sum / windowS) * 3600;
   });
   const thrNormal = rollingThroughput(data.normal.frames);
-  const thrAstrid = rollingThroughput(data.astrid.frames);
+  const thrPpo = rollingThroughput(data.ppo.frames);
 
   const lineOpts = () => ({
     plugins: { legend: { labels: { color: '#e6edf3' } } },
@@ -240,37 +424,41 @@ function renderOverTimeCharts() {
     elements: { point: { radius: 0 }, line: { borderWidth: 1.5, tension: 0.15 } },
   });
 
-  const mk = (id, key, ln, la) => {
+  const mk = (id, ln, lp) => {
     const ctx = document.getElementById(id).getContext('2d');
     if (charts[id]) charts[id].destroy();
     charts[id] = new Chart(ctx, {
       type: 'line',
       data: { labels, datasets: [
         { label: 'Normal', data: ln, borderColor: '#b39ddb' },
-        { label: 'ASTRID', data: la, borderColor: '#4fd1ff' },
+        { label: 'PPO', data: lp, borderColor: '#4fd1ff' },
       ] },
       options: lineOpts(),
     });
   };
-  mk('overQueue', 'queue', queueNormal, queueAstrid);
-  mk('overDelay', 'wait', waitNormal, waitAstrid);
-  mk('overThroughput', 'thr', thrNormal, thrAstrid);
+  mk('overQueue', queueNormal, queuePpo);
+  mk('overDelay', waitNormal, waitPpo);
+  mk('overThroughput', thrNormal, thrPpo);
 }
 
-function pctChange(normalVal, astridVal) {
-  if (normalVal === 0) return 0;
-  return ((astridVal - normalVal) / normalVal) * 100;
+function pctChange(normalVal, ppoVal) {
+  if (!Number.isFinite(normalVal) || !Number.isFinite(ppoVal) || normalVal === 0) return null;
+  return ((ppoVal - normalVal) / normalVal) * 100;
 }
 
 function renderSessionSummary() {
-  const n = data.normal.kpis, a = data.astrid.kpis;
-  const queuePct = pctChange(avgQueueKpi(data.normal), avgQueueKpi(data.astrid)); // lower is good
-  const waitPct = pctChange(n.avg_wait_s, a.avg_wait_s);          // lower is good
-  const speedPct = pctChange(n.avg_speed_kmh, a.avg_speed_kmh);   // higher is good
-  const thrPct = pctChange(n.throughput_veh_per_hr, a.throughput_veh_per_hr); // higher is good
+  const queuePct = pctChange(avgQueueKpi(data.normal), avgQueueKpi(data.ppo));       // lower is good
+  const waitPct = pctChange(avgWaitKpi(data.normal), avgWaitKpi(data.ppo));          // lower is good
+  const speedPct = pctChange(avgSpeedKmhKpi(data.normal), avgSpeedKmhKpi(data.ppo)); // higher is good
+  const thrPct = pctChange(throughputKpi(data.normal), throughputKpi(data.ppo));     // higher is good
 
   const setArrow = (id, pct, higherIsGood) => {
     const el = document.getElementById(id);
+    if (pct === null) {
+      el.textContent = '--';
+      el.className = 'summary-arrow';
+      return;
+    }
     const good = higherIsGood ? pct > 0 : pct < 0;
     const arrow = pct > 0 ? '\u25B2' : '\u25BC';
     el.textContent = arrow + ' ' + Math.abs(pct).toFixed(0) + '%';
@@ -281,10 +469,17 @@ function renderSessionSummary() {
   setArrow('sumSpeedArrow', speedPct, true);
   setArrow('sumThroughputArrow', thrPct, true);
 
-  const goodCount = [queuePct < 0, waitPct < 0, speedPct > 0, thrPct > 0].filter(Boolean).length;
+  const results = [
+    queuePct !== null ? queuePct < 0 : null,
+    waitPct !== null ? waitPct < 0 : null,
+    speedPct !== null ? speedPct > 0 : null,
+    thrPct !== null ? thrPct > 0 : null,
+  ].filter(v => v !== null);
+  const goodCount = results.filter(Boolean).length;
   const verdictEl = document.getElementById('summaryVerdict');
-  if (goodCount >= 3) { verdictEl.textContent = 'IMPROVED'; verdictEl.className = 'summary-verdict improved'; }
-  else if (goodCount <= 1) { verdictEl.textContent = 'WORSE'; verdictEl.className = 'summary-verdict worse'; }
+  if (!results.length) { verdictEl.textContent = 'INSUFFICIENT KPI DATA'; verdictEl.className = 'summary-verdict mixed'; }
+  else if (goodCount / results.length >= 0.75) { verdictEl.textContent = 'PPO IMPROVED'; verdictEl.className = 'summary-verdict improved'; }
+  else if (goodCount / results.length <= 0.25) { verdictEl.textContent = 'PPO WORSE'; verdictEl.className = 'summary-verdict worse'; }
   else { verdictEl.textContent = 'MIXED RESULT \u2014 SEE KPIs ABOVE'; verdictEl.className = 'summary-verdict mixed'; }
 }
 
@@ -354,7 +549,7 @@ function drawVehicle(ctx, cx, cy, vw, vh, axis, alongDir, fillColor, outlineColo
 // Renders REAL per-vehicle positions from frame.queue_vehicles (type, lane, dist_to_stop_m) --
 // fill = vehicle type (bike/car/hgv/bus, sized from the scenario's own vType lengths), outline
 // = right-of-way status. This is what makes cars visibly change lanes / advance toward the
-// stop line frame to frame.
+// stop line frame to frame. Used identically for Normal and PPO -- see drawArmVehicles below.
 function drawArmVehiclesReal(ctx, edge, frame, origin, laneStep, alongDir, axis, stage) {
   const outline = statusColorFor(edge, stage);
   frame.queue_vehicles.filter(v => v.edge === edge).forEach(v => {
@@ -369,7 +564,8 @@ function drawArmVehiclesReal(ctx, edge, frame, origin, laneStep, alongDir, axis,
   });
 }
 
-// Fallback for JSON logged before queue_vehicles existed: approximate count from queue meters,
+// Fallback for JSON logged before queue_vehicles existed (or, for PPO, if the schema adapter
+// couldn't find a per-vehicle position array at all): approximate count from queue meters,
 // fill = right-of-way status (no type data available yet).
 function drawArmVehiclesApprox(ctx, edge, frame, origin, laneStep, alongDir, axis, stage) {
   const color = statusColorFor(edge, stage);
@@ -446,7 +642,7 @@ function drawIntersection(canvasId, frame) {
 function renderFrame() {
   if (!data) return;
   drawIntersection('canvasNormal', data.normal.frames[frameIndex]);
-  drawIntersection('canvasAstrid', data.astrid.frames[frameIndex]);
+  drawIntersection('canvasAstrid', data.ppo.frames[frameIndex]);
   document.getElementById('timeline').value = frameIndex;
   renderSavings();           // live, tied to current playback position
   updateKpiChartsLive(frameIndex); // live, tied to current playback position

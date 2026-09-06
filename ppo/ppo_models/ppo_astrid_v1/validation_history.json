@@ -1,0 +1,68 @@
+[
+  {
+    "timesteps": 1000,
+    "score": -721.156019180258,
+    "avg_queue_m": 47.748666944590944,
+    "avg_waiting_s": 1490.769696969697,
+    "avg_speed_mps": 9.02496249181309,
+    "avg_throughput": 1421.5
+  },
+  {
+    "timesteps": 2000,
+    "score": -645.9230004296752,
+    "avg_queue_m": 43.1129761963255,
+    "avg_waiting_s": 1349.5454545454547,
+    "avg_speed_mps": 9.127030393776925,
+    "avg_throughput": 1421.0
+  },
+  {
+    "timesteps": 60000,
+    "score": -179.68806302177865,
+    "avg_queue_m": 48.90433548383612,
+    "avg_waiting_s": 405.0329545454545,
+    "avg_speed_mps": 9.327497347847567,
+    "avg_throughput": 1416.0,
+    "collisions": 0.0,
+    "teleports": 0.0
+  },
+  {
+    "timesteps": 70000,
+    "score": -192.804383307727,
+    "avg_queue_m": 50.40923109236702,
+    "avg_waiting_s": 427.2998106060606,
+    "avg_speed_mps": 9.047530876703341,
+    "avg_throughput": 1407.0,
+    "collisions": 0.0,
+    "teleports": 0.0
+  },
+  {
+    "timesteps": 80000,
+    "score": -196.27566161299535,
+    "avg_queue_m": 49.8964309285248,
+    "avg_waiting_s": 435.2647727272727,
+    "avg_speed_mps": 9.281556791657723,
+    "avg_throughput": 1406.5,
+    "collisions": 0.0,
+    "teleports": 0.0
+  },
+  {
+    "timesteps": 90000,
+    "score": -192.4027831968558,
+    "avg_queue_m": 49.4357684227692,
+    "avg_waiting_s": 428.47897727272726,
+    "avg_speed_mps": 9.22473862276982,
+    "avg_throughput": 1407.0,
+    "collisions": 0.0,
+    "teleports": 0.0
+  },
+  {
+    "timesteps": 100000,
+    "score": -180.39868108490728,
+    "avg_queue_m": 52.108417798087125,
+    "avg_waiting_s": 398.2464015151515,
+    "avg_speed_mps": 9.329374707555756,
+    "avg_throughput": 1398.0,
+    "collisions": 0.0,
+    "teleports": 0.0
+  }
+]

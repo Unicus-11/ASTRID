@@ -1,0 +1,10 @@
+{
+  "timesteps": 100000,
+  "score": -122.7295384801074,
+  "avg_queue_m": 50.68196013890584,
+  "avg_waiting_s": 286.9488636363636,
+  "avg_speed_mps": 9.768534769802681,
+  "avg_throughput": 1409.0,
+  "collisions": 0.0,
+  "teleports": 0.0
+}
