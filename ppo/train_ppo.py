@@ -50,14 +50,39 @@ compared against `-inf` and treated as "the new best" even if it
 scores WORSE than the already-saved 50k checkpoint -- silently
 overwriting a better model with a worse one. This file seeds
 `best_score` and `_last_eval_step` from the resumed checkpoint's own
-saved `validation_metrics.json` (and `validation_history.json`, if
-present) so the callback picks up exactly where it left off.
+saved `best_model/validation_metrics.json` and `validation_history.csv`
+so the callback picks up exactly where it left off.
+
+Crash/restart safety
+---------------------
+Previously, validation_history.json was only written ONCE, at
+_on_training_end() -- if the process was killed (crash, VS Code
+restart, power loss) mid-run, that write never happened and the
+ENTIRE run's history was lost, not just the last few steps. Likewise
+final_model.zip was only written once, at a clean finish -- after a
+crash there was no "latest" checkpoint at all to resume from, only
+whichever best_model happened to be last time score improved (which
+could be far behind).
+
+Both are now fixed:
+  - validation_history.csv is appended to (with an immediate flush +
+    fsync) after EVERY validation call, not just at the end. A crash
+    loses at most the last eval_every_timesteps of training, never the
+    whole run's record.
+  - out_dir/latest_model/model.zip is saved after EVERY validation
+    call too, regardless of whether it was a new best. This -- not
+    final_model.zip -- is the checkpoint to --resume from after a
+    crash, since it's always the most recent completed validation
+    point rather than "whatever the best score happened to be" or
+    "nothing, because training never finished cleanly."
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import os
 import shutil
 import zlib
 from pathlib import Path
@@ -70,6 +95,12 @@ from stable_baselines3.common.monitor import Monitor
 
 import ppo_config as cfg
 from ppo_env import ASTRIDSignalEnv
+
+
+CSV_FIELDNAMES = [
+    "timesteps", "score", "avg_queue_m", "avg_waiting_s",
+    "avg_speed_mps", "avg_throughput", "collisions", "teleports",
+]
 
 
 def _deterministic_seed(scenario_id: str, base_seed: int) -> int:
@@ -103,17 +134,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--sumo-binary", type=str, default=None, help="'sumo' or 'sumo-gui'")
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--run-name", type=str, default="ppo_astrid_v1")
+    p.add_argument("--model-out-dir", type=str, default=None,
+                    help="Override the base output directory (default: ppo_models/, from "
+                         "ppo_config.PPORunConfig.model_out_dir). Artifacts land in "
+                         "<model-out-dir>/<run-name>/, same structure either way. Use this "
+                         "to point a fresh training run somewhere entirely separate from "
+                         "an existing run's artifacts, e.g. --model-out-dir ppo_models_again "
+                         "so it never touches ppo_models/ppo_astrid_v1/.")
+    p.add_argument("--allow-fresh-overwrite", action="store_true",
+                    help="Required to start a brand-new (non-resumed) model under a "
+                         "--run-name that already has a saved best_model/. Without this, "
+                         "the script refuses to run rather than risk silently conflating "
+                         "an unrelated fresh attempt with prior training history.")
     p.add_argument("--resume", type=str, default=None,
-                    help="Path to a saved PPO model.zip (e.g. "
-                         "ppo_models/ppo_astrid_v1/best_model/model.zip) to resume training "
-                         "from. When set, --total-timesteps must be the GRAND TOTAL you want "
-                         "the model to reach, and must be greater than the checkpoint's own "
-                         "num_timesteps. NOTE: hyperparameter override flags above "
-                         "(--learning-rate, --gamma, etc.) are NOT re-applied to a resumed "
-                         "model -- PPO.load() restores the hyperparameters that were saved "
-                         "with the checkpoint. Only --total-timesteps, --eval-every-timesteps, "
-                         "and --seed (which only affects the env's own RNG, not the loaded "
-                         "policy) take effect on resume.")
+                    help="Path to a saved PPO model.zip to resume training from. For "
+                         "resuming after a crash/restart, use "
+                         "<out_dir>/latest_model/model.zip (updated after EVERY validation, "
+                         "not just improvements or a clean finish -- this loses the least "
+                         "progress). Use <out_dir>/best_model/model.zip if you specifically "
+                         "want to roll back to the best-scoring checkpoint instead of "
+                         "continuing the raw training trajectory. When set, --total-timesteps "
+                         "must be the GRAND TOTAL you want the model to reach, and must be "
+                         "greater than the checkpoint's own num_timesteps. NOTE: "
+                         "hyperparameter override flags above (--learning-rate, --gamma, "
+                         "etc.) are NOT re-applied to a resumed model -- PPO.load() restores "
+                         "the hyperparameters that were saved with the checkpoint. Only "
+                         "--total-timesteps, --eval-every-timesteps, and --seed (which only "
+                         "affects the env's own RNG, not the loaded policy) take effect on "
+                         "resume.")
     return p
 
 
@@ -149,6 +197,8 @@ def apply_overrides(run_cfg: cfg.PPORunConfig, args: argparse.Namespace) -> None
         run_cfg.episode_seconds = args.episode_seconds
     if args.sumo_binary is not None:
         run_cfg.sumo_binary = args.sumo_binary
+    if args.model_out_dir is not None:
+        run_cfg.model_out_dir = Path(args.model_out_dir)
 
 
 def composite_score(metrics: Dict[str, float]) -> float:
@@ -208,6 +258,22 @@ class ValidationCallback(BaseCallback):
     resulting traffic metrics across scenarios, scores them with
     composite_score(), and saves the model whenever that score improves.
 
+    CRASH SAFETY: two things are written on EVERY validation call, not
+    just at clean training end:
+      1. A row appended to validation_history.csv (flushed + fsynced
+         immediately) -- so a crash mid-run loses at most the LAST
+         eval_every_timesteps worth of training, not the entire run's
+         history. validation_history.json is still written too, at
+         _on_training_end, purely for convenience -- the CSV is the
+         durable source of truth resume reads from.
+      2. The full model state saved to out_dir/latest_model/model.zip,
+         REGARDLESS of whether this validation was a new best. This is
+         the checkpoint to --resume from after a crash/restart: unlike
+         best_model/ (only updated when score improves -- could be far
+         behind) or final_model.zip (only written once, at a clean
+         finish -- doesn't exist at all after a crash), latest_model/
+         always reflects the most recent completed validation point.
+
     RESUME SUPPORT: initial_best_score / initial_last_eval_step /
     initial_history let a resumed run pick up exactly where a previous
     run left off, instead of starting from best_score=-inf (which would
@@ -235,6 +301,22 @@ class ValidationCallback(BaseCallback):
         self._eval_env = ASTRIDSignalEnv(run_cfg, run_cfg.validation_scenarios, seed=run_cfg.hyperparams.seed + 1)
         self.history: List[dict] = list(initial_history) if initial_history else []
 
+        self.csv_path = out_dir / "validation_history.csv"
+        if not self.csv_path.is_file():
+            with open(self.csv_path, "w", newline="", encoding="utf-8") as f:
+                csv.DictWriter(f, fieldnames=CSV_FIELDNAMES).writeheader()
+
+    def _append_csv_row(self, row: dict) -> None:
+        """Appends one row and forces it to disk immediately (flush + fsync),
+        so it survives a hard crash right after this call returns -- not just
+        a normal process exit. This is the whole point of writing per-row
+        instead of dumping the full history once at the end."""
+        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
+            writer.writerow(row)
+            f.flush()
+            os.fsync(f.fileno())
+
     def _on_step(self) -> bool:
         if self.num_timesteps - self._last_eval_step < self.eval_every_timesteps:
             return True
@@ -256,10 +338,21 @@ class ValidationCallback(BaseCallback):
             for k in ("avg_queue_m", "avg_waiting_s", "avg_speed_mps", "avg_throughput", "collisions", "teleports")
         }
         score = composite_score(avg_metrics)
-        self.history.append({"timesteps": self.num_timesteps, "score": score, **avg_metrics})
+        record = {"timesteps": self.num_timesteps, "score": score, **avg_metrics}
+        self.history.append(record)
+        self._append_csv_row(record)
 
         if self.verbose:
             print(f"[validation @ {self.num_timesteps}] score={score:.4f} metrics={avg_metrics}")
+
+        # Save the LATEST state every time, independent of whether it's a new
+        # best -- this is what makes resuming after a crash lose minimal
+        # progress instead of falling back to a possibly much older best_model.
+        latest_dir = self.out_dir / "latest_model"
+        latest_dir.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(latest_dir / "model"))
+        with open(latest_dir / "checkpoint_info.json", "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
 
         if score > self.best_score:
             self.best_score = score
@@ -267,43 +360,79 @@ class ValidationCallback(BaseCallback):
             best_dir.mkdir(parents=True, exist_ok=True)
             self.model.save(str(best_dir / "model"))
             with open(best_dir / "validation_metrics.json", "w", encoding="utf-8") as f:
-                json.dump({"timesteps": self.num_timesteps, "score": score, **avg_metrics}, f, indent=2)
+                json.dump(record, f, indent=2)
         return True
 
     def _on_training_end(self) -> None:
         self._eval_env.close()
+        # Convenience copy only -- validation_history.csv (written incrementally
+        # above) is the durable record; this JSON dump is just easier to read
+        # in one go once a run finishes cleanly.
         with open(self.out_dir / "validation_history.json", "w", encoding="utf-8") as f:
             json.dump(self.history, f, indent=2)
 
 
-def _load_resume_state(resume_path: Path, out_dir: Path) -> tuple[float, int, List[dict]]:
-    """Reads whatever validation bookkeeping exists next to the checkpoint being
-    resumed from, so ValidationCallback doesn't forget that e.g. 50k was already
-    the best score. Missing files degrade gracefully (falls back to -inf / 0 / [])
-    rather than hard-failing -- the resume itself should still work even if, say,
-    validation_history.json was lost but validation_metrics.json wasn't."""
+def _load_resume_state(out_dir: Path) -> tuple[float, int, List[dict]]:
+    """Reads the run's own best-so-far bookkeeping AND validation history so
+    ValidationCallback doesn't forget either across a resume.
+
+    History now comes from validation_history.csv, NOT validation_history.json
+    -- the CSV is written incrementally after every single validation call, so
+    it survives a crash mid-run; the JSON is only written at a clean finish
+    and would simply not exist after a crash. Falls back to the JSON if no CSV
+    is found (e.g. an older run from before this change), so old runs can
+    still be resumed without losing their recorded history.
+
+    best_score is still read from out_dir/best_model/validation_metrics.json
+    specifically (not derived from history) since that's the one score that
+    actually matters for the overwrite-protection check -- but as a second
+    line of defense, if that file is missing, best_score falls back to the
+    max score found in history/CSV instead of jumping straight to -inf."""
     best_score = -np.inf
     last_eval_step = 0
     history: List[dict] = []
 
-    metrics_path = resume_path.parent / "validation_metrics.json"
+    csv_path = out_dir / "validation_history.csv"
+    json_path = out_dir / "validation_history.json"
+    if csv_path.is_file():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                history.append({
+                    "timesteps": int(row["timesteps"]),
+                    "score": float(row["score"]),
+                    "avg_queue_m": float(row["avg_queue_m"]),
+                    "avg_waiting_s": float(row["avg_waiting_s"]),
+                    "avg_speed_mps": float(row["avg_speed_mps"]),
+                    "avg_throughput": float(row["avg_throughput"]),
+                    "collisions": float(row["collisions"]),
+                    "teleports": float(row["teleports"]),
+                })
+        print(f"[resume] Loaded {len(history)} prior validation record(s) from {csv_path}.")
+    elif json_path.is_file():
+        with open(json_path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+        print(f"[resume] No CSV found; loaded {len(history)} prior validation record(s) "
+              f"from {json_path} instead.")
+
+    if history:
+        last_eval_step = max(int(r["timesteps"]) for r in history)
+
+    metrics_path = out_dir / "best_model" / "validation_metrics.json"
     if metrics_path.is_file():
         with open(metrics_path, "r", encoding="utf-8") as f:
             saved = json.load(f)
         best_score = float(saved["score"])
-        last_eval_step = int(saved["timesteps"])
         print(f"[resume] Seeding best_score={best_score:.4f} from {metrics_path} "
-              f"(saved at {last_eval_step} timesteps).")
+              f"(saved at {int(saved['timesteps'])} timesteps).")
+    elif history:
+        best_score = max(r["score"] for r in history)
+        print(f"[resume] WARNING: {metrics_path} not found. Falling back to "
+              f"best_score={best_score:.4f} derived from history instead of -inf.")
     else:
-        print(f"[resume] WARNING: no validation_metrics.json found at {metrics_path}. "
+        print(f"[resume] WARNING: no validation_metrics.json and no history found. "
               f"best_score will start at -inf, meaning the FIRST post-resume validation "
-              f"will always be saved as 'best' even if it's worse than the loaded checkpoint.")
-
-    history_path = out_dir / "validation_history.json"
-    if history_path.is_file():
-        with open(history_path, "r", encoding="utf-8") as f:
-            history = json.load(f)
-        print(f"[resume] Loaded {len(history)} prior validation record(s) from {history_path}.")
+              f"will always be saved as 'best' even if it's worse than any prior result.")
 
     return best_score, last_eval_step, history
 
@@ -317,9 +446,31 @@ def main() -> None:
     out_dir = Path(run_cfg.model_out_dir) / args.run_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    resuming = args.resume is not None
+
+    # --- Safety check 0: refuse to silently start a FRESH model on top of an
+    # out_dir that already has trained artifacts, unless the caller explicitly
+    # opted in. This is what causes runs to get conflated together (a
+    # forgotten --resume flag creates a brand-new random model and, at
+    # training end, overwrites validation_history.json with only ITS OWN
+    # entries -- destroying the record of everything trained before it, even
+    # though best_model/ itself stays protected by the best-score check
+    # below). If you genuinely want a new experiment, use a new --run-name.
+    existing_checkpoint = out_dir / "best_model" / "model.zip"
+    if not resuming and existing_checkpoint.is_file() and not args.allow_fresh_overwrite:
+        raise RuntimeError(
+            f"Refusing to start a NEW model: {existing_checkpoint} already exists from a "
+            f"previous run under --run-name '{args.run_name}'.\n"
+            f"If you meant to continue training (e.g. after a crash/restart), pass "
+            f"--resume {out_dir / 'latest_model' / 'model.zip'}\n"
+            f"If you genuinely want to start a fresh, unrelated experiment, either pick a "
+            f"different --run-name, or pass --allow-fresh-overwrite to proceed anyway "
+            f"(this will NOT delete the existing best_model/latest_model, but will overwrite "
+            f"validation_history.csv/.json with only this new run's entries)."
+        )
+
     train_env = Monitor(ASTRIDSignalEnv(run_cfg, run_cfg.train_scenarios, seed=hp.seed))
 
-    resuming = args.resume is not None
     initial_best_score, initial_last_eval_step, initial_history = -np.inf, 0, []
 
     if resuming:
@@ -383,7 +534,7 @@ def main() -> None:
             shutil.copytree(resume_path.parent, backup_dir)
             print(f"[resume] Backed up pre-resume checkpoint to {backup_dir}")
 
-        initial_best_score, initial_last_eval_step, initial_history = _load_resume_state(resume_path, out_dir)
+        initial_best_score, initial_last_eval_step, initial_history = _load_resume_state(out_dir)
         # Never let the checkpoint's own already-completed step count be treated as due
         # for a re-validation the instant training resumes -- next validation should land
         # at (already_done + eval_every_timesteps), not immediately at already_done again.
@@ -433,6 +584,10 @@ def main() -> None:
     print(f"Done. Artifacts written to {out_dir}")
     print(f"Best validation checkpoint: {out_dir / 'best_model' / 'model.zip'} "
           f"(score={validation_callback.best_score:.4f})")
+    print(f"Latest checkpoint (for resuming after a future crash/restart): "
+          f"{out_dir / 'latest_model' / 'model.zip'}")
+    print(f"Full validation history (durable, updated every validation): "
+          f"{out_dir / 'validation_history.csv'}")
 
 
 if __name__ == "__main__":

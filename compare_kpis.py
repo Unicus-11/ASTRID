@@ -40,12 +40,12 @@ METRICS = [
 ]
 
 
-def load_scenario_kpis(output_dir: Path, ppo_dir: Path, scenario_name: str) -> Optional[Dict[str, dict]]:
-    astrid_path = output_dir / f"{scenario_name}.json"
+def load_scenario_kpis(astrid_dir: Path, ppo_dir: Path, scenario_name: str) -> Optional[Dict[str, dict]]:
+    astrid_path = astrid_dir / f"{scenario_name}.json"
     ppo_path = ppo_dir / f"{scenario_name}.json"
 
     if not astrid_path.is_file():
-        print(f"[skip] {scenario_name}: no astrid/normal JSON at {astrid_path}")
+        print(f"[skip] {scenario_name}: no astrid JSON at {astrid_path}")
         return None
     if not ppo_path.is_file():
         print(f"[skip] {scenario_name}: no ppo JSON at {ppo_path}")
@@ -69,19 +69,28 @@ def load_scenario_kpis(output_dir: Path, ppo_dir: Path, scenario_name: str) -> O
     }
 
 
-def discover_scenarios(output_dir: Path, ppo_dir: Path) -> List[str]:
-    """Scenarios present in BOTH indexes -- anything only on one side is
-    reported and skipped, not silently dropped."""
-    astrid_index_path = output_dir / "index.json"
-    ppo_index_path = ppo_dir / "index.json"
+def discover_scenarios(astrid_dir: Path, ppo_dir: Path) -> List[str]:
+    """Scenarios present in BOTH folders, determined from the actual
+    .json files on disk -- NOT from index.json.
 
-    astrid_names, ppo_names = set(), set()
-    if astrid_index_path.is_file():
-        with open(astrid_index_path, "r", encoding="utf-8") as f:
-            astrid_names = set(json.load(f).get("scenarios", []))
-    if ppo_index_path.is_file():
-        with open(ppo_index_path, "r", encoding="utf-8") as f:
-            ppo_names = set(json.load(f).get("scenarios", []))
+    index.json is rebuilt from scratch every time comparison.py runs
+    and only lists the scenarios processed in THAT ONE invocation. If
+    you've ever run comparison.py more than once with different
+    --scenario-dirs subsets, index.json only reflects the most recent
+    run and silently omits earlier scenarios whose .json files are
+    still sitting right there on disk. Scanning the folder directly
+    avoids that trap."""
+
+    def scenario_names_in(folder: Path) -> set:
+        if not folder.is_dir():
+            return set()
+        return {
+            f.stem for f in folder.glob("*.json")
+            if f.name not in ("index.json",)
+        }
+
+    astrid_names = scenario_names_in(astrid_dir)
+    ppo_names = scenario_names_in(ppo_dir)
 
     only_astrid = astrid_names - ppo_names
     only_ppo = ppo_names - astrid_names
@@ -137,16 +146,17 @@ def main() -> None:
     args = p.parse_args()
 
     output_dir = Path(args.output_dir)
+    astrid_dir = output_dir / "astrid"
     ppo_dir = output_dir / "ppo_model"
 
-    scenario_names = args.scenarios or discover_scenarios(output_dir, ppo_dir)
+    scenario_names = args.scenarios or discover_scenarios(astrid_dir, ppo_dir)
     if not scenario_names:
         print("No scenarios found with BOTH astrid and ppo results. Nothing to compare.")
         return
 
     rows = []
     for name in scenario_names:
-        kpis = load_scenario_kpis(output_dir, ppo_dir, name)
+        kpis = load_scenario_kpis(astrid_dir, ppo_dir, name)
         if kpis is None:
             continue
         rows.append({"scenario": name, **kpis})

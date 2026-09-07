@@ -1,5 +1,5 @@
 """
-comparison.py  (PATCHED -- adds PPO leg)
+comparison_2.py  (PATCHED -- adds PPO leg)
 ====================
 Runs the SAME scenario through THREE controllers now:
   * "normal" -- astrid_controller.placeholder_policy (unchanged)
@@ -88,7 +88,7 @@ for sub in ("controller", "sensors", "dataset", "models", "models/results", "ppo
 from astrid_controller import placeholder_policy  # noqa: E402 (unmodified)
 from controller_state import ControllerState  # noqa: E402
 from forest_controller import ForestPolicy, load_forest_policy  # noqa: E402
-from signal_config import APPROACH_EDGES, SIMULATION_END_S  # noqa: E402
+from signal_config import APPROACH_EDGES, SIMULATION_BEGIN_S, SIMULATION_END_S  # noqa: E402
 from sumo_interface import LoopConfig, SumoInterface  # noqa: E402
 from eval_common import RecordingQueueEstimator, build_estimator, total_estimated_queue_m  # noqa: E402
 
@@ -97,14 +97,77 @@ import ppo_config as ppo_cfg  # noqa: E402
 from ppo_env import ASTRIDSignalEnv  # noqa: E402
 
 
+def build_scenario_sumocfg(scenario_dir: Path) -> Path:
+    """
+    BUG FIX: run_and_log() previously launched SUMO with the SAME
+    static args.sumo_cfg_path for every scenario_dir, so normal/astrid
+    never actually saw each scenario's own flow.xml/vtype.xml -- every
+    "different scenario" run was really the same fixed traffic demand
+    under a different output filename. PPO's leg (ASTRIDSignalEnv) was
+    already building a correct per-scenario config; this makes
+    normal/astrid do the same thing, the same way, so all three legs
+    genuinely run the scenario they claim to.
+
+    Mirrors ppo_env.py's ASTRIDSignalEnv._build_sumo_config() exactly
+    (shared net-file + this scenario's own flow.xml/vtype.xml, same
+    begin/end/step-length/time-to-teleport), using a different output
+    filename (comparison_episode.sumo.cfg vs ppo_episode.sumo.cfg) so
+    the two scripts never clobber each other's temp file if run
+    around the same time.
+    """
+    flow_file = scenario_dir / "flow.xml"
+    vtype_file = scenario_dir / "vtype.xml"
+
+    for required in (flow_file, vtype_file):
+        if not required.is_file():
+            raise FileNotFoundError(
+                f"Scenario '{scenario_dir.name}' is missing {required.name} -- "
+                f"cannot build a per-scenario SUMO config without it."
+            )
+
+    raw_output_dir = scenario_dir / "raw_output"
+    raw_output_dir.mkdir(parents=True, exist_ok=True)
+    sumocfg = raw_output_dir / "comparison_episode.sumo.cfg"
+
+    network_path = ppo_cfg.NETWORK_FILE.resolve()
+    flow_path = flow_file.resolve()
+    vtype_path = vtype_file.resolve()
+    begin = float(SIMULATION_BEGIN_S)
+    end = float(SIMULATION_END_S)
+
+    config_text = f"""<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+    <input>
+        <net-file value="{network_path}"/>
+        <route-files value="{flow_path}"/>
+        <additional-files value="{vtype_path}"/>
+    </input>
+    <time>
+        <begin value="{begin}"/>
+        <end value="{end}"/>
+        <step-length value="1.0"/>
+    </time>
+    <processing>
+        <time-to-teleport value="-1"/>
+    </processing>
+</configuration>
+"""
+    sumocfg.write_text(config_text, encoding="utf-8")
+    return sumocfg
+
+
 def run_and_log(policy_fn: Callable[[ControllerState], str], scenario_dir: Path, args) -> dict:
     estimator = RecordingQueueEstimator(
         build_estimator(scenario_dir, Path(args.sumo_config_json), Path(args.model_path),
                          Path(args.manifest_path), args.penetration)
     )
+    # PATCH: was args.sumo_cfg_path (same file for every scenario) --
+    # see build_scenario_sumocfg()'s docstring for why that was wrong.
+    scenario_sumocfg = build_scenario_sumocfg(scenario_dir)
     interface = SumoInterface(LoopConfig(
         sumo_binary=args.sumo_binary,
-        config_path=args.sumo_cfg_path,
+        config_path=str(scenario_sumocfg),
         max_steps=args.max_steps,
         queue_estimator=estimator,
         policy_fn=policy_fn,
@@ -342,8 +405,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run normal vs ASTRID (vs PPO) controllers and log a dashboard-ready comparison.")
     parser.add_argument("--scenario-dirs", type=str, nargs="+", required=True)
     parser.add_argument("--sumo-config-json", type=str, required=True)
-    parser.add_argument("--sumo-cfg-path", type=str, required=True,
-                         help="Full path to sq.sumo.cfg (shared by every scenario in this junction).")
+    parser.add_argument("--sumo-cfg-path", type=str, default=None,
+                         help="DEPRECATED / no longer used: run_and_log() now builds a correct "
+                              "per-scenario SUMO config from each scenario's own flow.xml/vtype.xml "
+                              "(see build_scenario_sumocfg()). Kept only so old shell scripts that "
+                              "still pass this flag don't error out; the value is ignored.")
     parser.add_argument("--model-path", type=str,
                          default="models/artifacts/layer2_p11/hist_gradient_boosting_layer2_p11_tuned/hist_gradient_boosting.joblib")
     parser.add_argument("--manifest-path", type=str, default="dataset/assembled/layer2_p11/manifest.json")
@@ -380,9 +446,11 @@ def main() -> None:
 
     out_dir = Path(args.output_dir)
 
-    # PPO always writes into its own subfolder -- never merged into the
-    # normal/astrid combined JSON, and never overwrites files already
-    # produced by a normal/astrid-only run.
+    # PATCH: normal and astrid no longer share one combined JSON file --
+    # each gets its own subfolder, same pattern as ppo_model/.
+    normal_out_dir = out_dir / "normal"
+    astrid_out_dir = out_dir / "astrid"
+
     ppo_out_dir = out_dir / "ppo_model"
     if ppo_model is not None:
         ppo_out_dir.mkdir(parents=True, exist_ok=True)
@@ -390,9 +458,11 @@ def main() -> None:
     template = None
     if not args.ppo_only:
         template = load_forest_policy(Path(args.forest_model_path))
-        out_dir.mkdir(parents=True, exist_ok=True)
+        normal_out_dir.mkdir(parents=True, exist_ok=True)
+        astrid_out_dir.mkdir(parents=True, exist_ok=True)
 
-    index = []
+    normal_index = []
+    astrid_index = []
     ppo_index = []
 
     for scenario_dir in [Path(s) for s in args.scenario_dirs]:
@@ -401,22 +471,24 @@ def main() -> None:
         if not args.ppo_only:
             print(f"[{scenario_dir.name}] running normal (placeholder_policy)...")
             normal_result = run_and_log(placeholder_policy, scenario_dir, args)
+            normal_out_path = normal_out_dir / f"{scenario_dir.name}.json"
+            with open(normal_out_path, "w", encoding="utf-8") as f:
+                json.dump({"scenario": scenario_dir.name, "normal": normal_result}, f)
 
             print(f"[{scenario_dir.name}] running astrid (random forest)...")
             astrid_policy = ForestPolicy(model=template.model)
             astrid_result = run_and_log(astrid_policy, scenario_dir, args)
-
-            payload = {"scenario": scenario_dir.name, "normal": normal_result, "astrid": astrid_result}
-            out_path = out_dir / f"{scenario_dir.name}.json"
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f)
+            astrid_out_path = astrid_out_dir / f"{scenario_dir.name}.json"
+            with open(astrid_out_path, "w", encoding="utf-8") as f:
+                json.dump({"scenario": scenario_dir.name, "astrid": astrid_result}, f)
 
             summary = (
                 f"normal avg_wait={normal_result['kpis']['avg_wait_s']:.1f}s, "
                 f"astrid avg_wait={astrid_result['kpis']['avg_wait_s']:.1f}s"
             )
-            print(f"[{scenario_dir.name}] wrote {out_path} ({summary})")
-            index.append(scenario_dir.name)
+            print(f"[{scenario_dir.name}] wrote {normal_out_path} and {astrid_out_path} ({summary})")
+            normal_index.append(scenario_dir.name)
+            astrid_index.append(scenario_dir.name)
 
         if ppo_model is not None:
             print(f"[{scenario_dir.name}] running ppo (frozen 50k checkpoint, warmup=0, "
@@ -430,15 +502,20 @@ def main() -> None:
                   f"(ppo avg_wait={ppo_result['kpis']['avg_wait_s']:.1f}s)")
             ppo_index.append(scenario_dir.name)
 
-    if not args.ppo_only:
-        with open(out_dir / "index.json", "w", encoding="utf-8") as f:
-            json.dump({"scenarios": index}, f)
-        print(f"[done] wrote {out_dir / 'index.json'}")
+        # PATCH: write each index after every scenario, not only at the
+        # very end -- so a partially-finished run still shows progress
+        # (this also fixes the earlier "dashboard only shows 2 scenarios
+        # mid-run" confusion).
+        if not args.ppo_only:
+            with open(normal_out_dir / "index.json", "w", encoding="utf-8") as f:
+                json.dump({"scenarios": normal_index}, f)
+            with open(astrid_out_dir / "index.json", "w", encoding="utf-8") as f:
+                json.dump({"scenarios": astrid_index}, f)
+        if ppo_model is not None:
+            with open(ppo_out_dir / "index.json", "w", encoding="utf-8") as f:
+                json.dump({"scenarios": ppo_index}, f)
 
-    if ppo_model is not None:
-        with open(ppo_out_dir / "index.json", "w", encoding="utf-8") as f:
-            json.dump({"scenarios": ppo_index}, f)
-        print(f"[done] wrote {ppo_out_dir / 'index.json'}")
+    print("[done]")
 
 
 if __name__ == "__main__":

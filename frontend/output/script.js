@@ -14,17 +14,21 @@ const charts = {};
 // ---------------------------------------------------------------------------
 // PPO schema adapter
 // ---------------------------------------------------------------------------
-// The dashboard was built against frontend/output/<scenario>.json ("normal" /
-// "astrid" keys). PPO results now live separately in
-// frontend/output/ppo_model/<scenario>.json under a "ppo" key. We were not
-// able to inspect an actual ppo_model/*.json file while writing this adapter,
-// so instead of assuming the field names match exactly, this adapter tries a
-// list of plausible aliases for every field the renderer needs and logs a
-// console warning (once) for anything it can't find. It never invents values
-// -- a field that can't be found is left undefined, and the existing
-// approximate-queue fallback (drawArmVehiclesApprox) kicks in automatically
-// wherever per-vehicle data is missing, exactly as it already does for older
-// RF logs that predate queue_vehicles.
+// comparison_2.py now writes THREE separate folders instead of one combined
+// file: frontend/output/normal/<scenario>.json ("normal" key),
+// frontend/output/astrid/<scenario>.json ("astrid" key, not used by this
+// dashboard -- see compare_kpis.py for the astrid-vs-ppo KPI comparison
+// instead), and frontend/output/ppo_model/<scenario>.json ("ppo" key). This
+// dashboard's split-screen and KPI panels compare NORMAL vs PPO only (the
+// "astrid" key is never read here, same as before this patch).
+//
+// This adapter tries a list of plausible aliases for every field the
+// renderer needs from a ppo_model/*.json file and logs a console warning
+// (once) for anything it can't find. It never invents values -- a field
+// that can't be found is left undefined, and the existing approximate-queue
+// fallback (drawArmVehiclesApprox) kicks in automatically wherever
+// per-vehicle data is missing, exactly as it already does for older RF logs
+// that predate queue_vehicles.
 //
 // If you see "[PPO adapter]" warnings in the browser console, open one
 // ppo_model/<scenario>.json file, find the real field names, and add them to
@@ -133,17 +137,56 @@ function adaptPpoPayload(rawPpo, scenarioName) {
 // Scenario / index loading
 // ---------------------------------------------------------------------------
 
+// PATCH: was fetch('index.json') -- comparison_2.py no longer writes a
+// top-level frontend/output/index.json; each subfolder (normal/, astrid/,
+// ppo_model/) writes its own. The dropdown's master list is now built from
+// BOTH normal/index.json and ppo_model/index.json (their intersection),
+// since loadScenario() needs a matching file in both folders to succeed --
+// listing a scenario that only exists in one of them would just produce a
+// load error when picked. This intentionally still reads only the two
+// index.json files, not the individual scenario_*.json files inside
+// normal/ or ppo_model/ (those are fetched later, per-scenario, in
+// loadScenario()).
 async function loadIndex() {
-  const res = await fetch('index.json');
-  const idx = await res.json();
   const select = document.getElementById('scenarioSelect');
+  let normalIdx, ppoIdx;
+
+  try {
+    const [normalRes, ppoRes] = await Promise.all([
+      fetch('normal/index.json'),
+      fetch('ppo_model/index.json'),
+    ]);
+    if (!normalRes.ok) throw new Error('could not load normal/index.json (HTTP ' + normalRes.status + ')');
+    if (!ppoRes.ok) throw new Error('could not load ppo_model/index.json (HTTP ' + ppoRes.status + ')');
+    normalIdx = await normalRes.json();
+    ppoIdx = await ppoRes.json();
+  } catch (err) {
+    showScenarioError('Scenario index failed to load: ' + err.message);
+    return;
+  }
+
+  const ppoNames = new Set(ppoIdx.scenarios || []);
+  const normalNames = new Set(normalIdx.scenarios || []);
+  const scenarios = (normalIdx.scenarios || []).filter(name => ppoNames.has(name));
+
+  const onlyNormal = (normalIdx.scenarios || []).filter(name => !ppoNames.has(name));
+  const onlyPpo = (ppoIdx.scenarios || []).filter(name => !normalNames.has(name));
+  if (onlyNormal.length) console.warn('[dashboard] scenarios in normal/index.json but not ppo_model/index.json (skipped in dropdown): ' + onlyNormal.join(', '));
+  if (onlyPpo.length) console.warn('[dashboard] scenarios in ppo_model/index.json but not normal/index.json (skipped in dropdown): ' + onlyPpo.join(', '));
+
   select.innerHTML = '';
-  idx.scenarios.forEach(name => {
+  scenarios.forEach(name => {
     const opt = document.createElement('option');
     opt.value = name; opt.textContent = name;
     select.appendChild(opt);
   });
-  if (idx.scenarios.length) loadScenario(idx.scenarios[0]);
+
+  if (!scenarios.length) {
+    showScenarioError('No scenario is listed in both normal/index.json and ppo_model/index.json.');
+    return;
+  }
+
+  loadScenario(scenarios[0]);
   select.addEventListener('change', e => loadScenario(e.target.value));
 }
 
@@ -204,9 +247,13 @@ function showScenarioError(msg) {
 async function loadScenario(name) {
   showScenarioError(null);
   let normalPayload, ppoPayloadRaw;
+
+  // PATCH: was fetch(name + '.json') -- normal now lives in its own
+  // subfolder (frontend/output/normal/<scenario>.json), separate from
+  // astrid (which this dashboard doesn't read) and ppo_model.
   try {
-    const normalRes = await fetch(name + '.json');
-    if (!normalRes.ok) throw new Error('could not load ' + name + '.json (HTTP ' + normalRes.status + ')');
+    const normalRes = await fetch('normal/' + name + '.json');
+    if (!normalRes.ok) throw new Error('could not load normal/' + name + '.json (HTTP ' + normalRes.status + ')');
     normalPayload = await normalRes.json();
   } catch (err) {
     showScenarioError('Normal controller data failed to load: ' + err.message);
