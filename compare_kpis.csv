@@ -1,0 +1,3 @@
+scenario,group,astrid_avg_queue_m,ppo_avg_queue_m,delta_avg_queue_m,astrid_avg_wait_s,ppo_avg_wait_s,delta_avg_wait_s,astrid_avg_speed_kmh,ppo_avg_speed_kmh,delta_avg_speed_kmh,astrid_throughput_veh_per_hr,ppo_throughput_veh_per_hr,delta_throughput_veh_per_hr
+scenario_east_west_heavy,train,658.834,438.259,-220.576,56.371,52.566,-3.805,9.231,18.614,9.383,1600.445,1445.402,-155.043
+scenario_south_heavy,train,627.204,348.025,-279.179,49.629,50.345,0.717,8.910,18.288,9.379,1600.445,1404.390,-196.054
