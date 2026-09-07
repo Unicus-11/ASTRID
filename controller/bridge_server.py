@@ -1,28 +1,6 @@
 """
-bridge_server.py
-====================
-Local control-and-bridge service for the live dual sumo-gui dashboard.
-
-Process model (the simpler/safer of the two options considered): TWO
-separate subprocesses (sumo_worker.py --role normal / --role astrid),
-each opening its OWN single TraCI connection to its OWN sumo-gui
-window. This process never touches traci directly -- it only speaks
-newline-delimited JSON to the two workers over their stdin/stdout, and
-JSON over WebSocket to the browser.
-
-Lockstep: every "step" (manual Step button, or one tick of the Play
-loop) sends {"cmd":"step"} to BOTH workers concurrently and waits for
-BOTH replies before the frame is considered complete and pushed to the
-browser. That is what keeps the two sumo-gui windows on the exact same
-simulated second at all times, regardless of which controller's step
-happens to take longer to compute.
-
-Run:
-    uvicorn bridge_server:app --reload --port 8000
-
-Config: edit SCENARIOS_ROOT / SUMO_CONFIG_JSON / SUMO_BINARY below for
-your machine. Everything else (model paths, penetration, etc.) reuses
-comparison_2.py's own argparse defaults inside sumo_worker.py.
+bridge_server.py — live dual sumo-gui bridge (Normal vs Astrid RF, lockstep).
+Run from ASTRID/controller/:  uvicorn bridge_server:app --port 8000
 """
 from __future__ import annotations
 
@@ -36,14 +14,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-# ---------------------------------------------------------------------------
-THIS_DIR = Path(__file__).resolve().parent
+THIS_DIR = Path(__file__).resolve().parent          # ASTRID/controller
+REPO_ROOT = THIS_DIR.parent                          # ASTRID/
 WORKER_SCRIPT = THIS_DIR / "sumo_worker.py"
-SCENARIOS_ROOT = THIS_DIR.parent / "sumo" / "generated_scenarios"
-SUMO_CONFIG_JSON = THIS_DIR.parent / "sumo" / "scenario_config.json"  # passed straight through to build_estimator
-FRONTEND_DIR = THIS_DIR.parent / "frontend" / "output"
+SCENARIOS_ROOT = REPO_ROOT / "sumo" / "generated_scenarios"
+SUMO_CONFIG_JSON = REPO_ROOT / "sumo" / "scenario_config.json"
+FRONTEND_DIR = REPO_ROOT / "frontend" / "output"
 SUMO_BINARY = "sumo-gui"
-# ---------------------------------------------------------------------------
 
 app = FastAPI()
 
@@ -58,11 +35,18 @@ def list_scenarios() -> list:
 
 
 class Worker:
-    """Thin async wrapper around one sumo_worker.py subprocess."""
-
     def __init__(self, role: str):
         self.role = role
         self.proc: Optional[asyncio.subprocess.Process] = None
+        self._stderr_task: Optional[asyncio.Task] = None
+
+    async def _drain_stderr(self) -> None:
+        assert self.proc is not None and self.proc.stderr is not None
+        while True:
+            line = await self.proc.stderr.readline()
+            if not line:
+                break
+            sys.stderr.write(f"[{self.role}] {line.decode(errors='replace')}")
 
     async def start(self, scenario_name: str) -> dict:
         args = [
@@ -77,7 +61,9 @@ class Worker:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=str(REPO_ROOT),
         )
+        self._stderr_task = asyncio.create_task(self._drain_stderr())
         msg = await self._readline()
         if msg is None or msg.get("type") != "ready":
             err = msg.get("message") if msg else "worker died before sending 'ready'"
@@ -104,6 +90,9 @@ class Worker:
         return msg
 
     async def stop(self) -> None:
+        if self._stderr_task is not None:
+            self._stderr_task.cancel()
+            self._stderr_task = None
         if self.proc is None:
             return
         try:
@@ -117,8 +106,6 @@ class Worker:
 
 
 class Session:
-    """One browser dashboard's worth of state: two workers, lockstep."""
-
     def __init__(self):
         self.normal = Worker("normal")
         self.astrid = Worker("astrid")
@@ -154,7 +141,6 @@ class Session:
         })
 
     async def step_once(self, ws: WebSocket) -> bool:
-        """Returns False when the episode is finished (or on error)."""
         if self.normal.proc is None or self.astrid.proc is None:
             return False
         normal_msg, astrid_msg = await asyncio.gather(self.normal.step(), self.astrid.step())

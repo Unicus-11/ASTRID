@@ -18,7 +18,7 @@
       <div class="radar-scan"></div>
       <div class="radar-dot"></div>
     </div>
-    <span class="radar-mini-label">LIVE</span>
+    <span class="radar-mini-label" id="connLabel">CONNECTING</span>
   </div>
 
   <div class="tag">SIH 2026</div>
@@ -33,7 +33,7 @@
     <div class="hint" id="scenarioError" style="color:#ff6b6b; display:none;"></div>
 
     <h3>Simulation Timeline</h3>
-    <input type="range" id="timeline" min="0" max="0" value="0">
+    <input type="range" id="timeline" min="0" max="0" value="0" disabled>
     <div class="timeline-labels"><span id="timeStart">--</span><span id="timeEnd">--</span></div>
 
     <h3>Playback Control</h3>
@@ -102,17 +102,10 @@
   </aside>
 
   <main class="center">
-    <h3>Split Live Visualization <span class="hint">(replayed from a saved comparison.py log, not a live SUMO feed)</span></h3>
-    <div class="legend-note">Vehicle fill = type when per-vehicle data is available (bike/car/hgv/bus, sized from the scenario's own vType lengths), else right-of-way status. Outline/fill status color = right-of-way (green=go, red=waiting, amber=transition).</div>
-    <div class="split">
-      <div class="panel">
-        <div class="panel-title normal">NORMAL CONTROLLER (Fixed-Time)</div>
-        <canvas id="canvasNormal" width="480" height="360"></canvas>
-      </div>
-      <div class="panel">
-        <div class="panel-title astrid">ASTRID AI CONTROLLER (RF)</div>
-        <canvas id="canvasAstrid" width="480" height="360"></canvas>
-      </div>
+    <h3>Live Simulation <span class="hint">(two real sumo-gui windows are driven by this dashboard — look for them on your taskbar/desktop, not in the browser)</span></h3>
+    <div class="legend-note" id="liveNote">
+      Vehicles render natively inside each sumo-gui window. This page controls both windows in lockstep
+      (Play/Pause/Step/Speed) and streams their KPIs into the charts below in real time.
     </div>
 
     <h3>Performance Analytics (KPIs)</h3>
@@ -123,14 +116,14 @@
       <div class="kpi-box"><canvas id="chartThroughput"></canvas></div>
     </div>
 
-    <h3>Performance Over Time <span class="hint">(full episode, Normal vs RF)</span></h3>
+    <h3>Performance Over Time <span class="hint">(live, Normal vs ASTRID RF)</span></h3>
     <div class="overtime-grid">
       <div class="kpi-box"><div class="overtime-title">Queue Length (m)</div><canvas id="overQueue"></canvas></div>
       <div class="kpi-box"><div class="overtime-title">Delay (s)</div><canvas id="overDelay"></canvas></div>
       <div class="kpi-box"><div class="overtime-title">Throughput (veh/hr, 60s rolling)</div><canvas id="overThroughput"></canvas></div>
     </div>
 
-    <h3>RF Performance &mdash; Session Summary</h3>
+    <h3>RF Performance &mdash; Session Summary <span class="hint">(so far, updates live)</span></h3>
     <div class="summary-box">
       <div class="summary-metrics">
         <div class="summary-metric">

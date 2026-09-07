@@ -276,3 +276,7 @@ canvas { display: block; width: 100%; background: #0d1f12; }
   .sidebar { position: static; max-height: none; }
   .split { flex-direction: column; }
 }
+
+.live-stats { display: flex; flex-direction: column; gap: 6px; padding: 10px 4px; }
+.live-stat-row { display: flex; justify-content: space-between; font-size: 13px; color: #e6edf3; }
+.live-stat-row span:first-child { color: #9fb3c8; }
