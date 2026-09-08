@@ -18,7 +18,7 @@
       <div class="radar-scan"></div>
       <div class="radar-dot"></div>
     </div>
-    <span class="radar-mini-label">LIVE</span>
+    <span class="radar-mini-label"></span>
   </div>
 
   <div class="tag">SIH 2026</div>
@@ -107,27 +107,12 @@
     <div class="split">
       <div class="panel">
         <div class="panel-title normal">NORMAL CONTROLLER (Fixed-Time)</div>
-        <canvas id="canvasNormal" width="720" height="720"></canvas>
+        <canvas id="canvasNormal" width="220" height="220"></canvas>
       </div>
       <div class="panel">
         <div class="panel-title astrid">ASTRID AI CONTROLLER (RF)</div>
-        <canvas id="canvasAstrid" width="720" height="720"></canvas>
+        <canvas id="canvasAstrid" width="220" height="220"></canvas>
       </div>
-    </div>
-
-    <h3>Performance Analytics (KPIs)</h3>
-    <div class="kpi-grid">
-      <div class="kpi-box"><canvas id="chartWait"></canvas></div>
-      <div class="kpi-box"><canvas id="chartSpeed"></canvas></div>
-      <div class="kpi-box"><canvas id="chartQueue"></canvas></div>
-      <div class="kpi-box"><canvas id="chartThroughput"></canvas></div>
-    </div>
-
-    <h3>Performance Over Time <span class="hint">(full episode, Normal vs RF)</span></h3>
-    <div class="overtime-grid">
-      <div class="kpi-box"><div class="overtime-title">Queue Length (m)</div><canvas id="overQueue"></canvas></div>
-      <div class="kpi-box"><div class="overtime-title">Delay (s)</div><canvas id="overDelay"></canvas></div>
-      <div class="kpi-box"><div class="overtime-title">Throughput (veh/hr, 60s rolling)</div><canvas id="overThroughput"></canvas></div>
     </div>
 
     <h3>RF Performance &mdash; Session Summary</h3>
@@ -152,6 +137,18 @@
       </div>
       <div class="summary-verdict" id="summaryVerdict">--</div>
     </div>
+
+    <h3>Performance Analytics (KPIs)</h3>
+    <div class="kpi-grid">
+      <div class="kpi-box"><canvas id="chartWait"></canvas></div>
+      <div class="kpi-box"><canvas id="chartSpeed"></canvas></div>
+      <div class="kpi-box"><canvas id="chartQueue"></canvas></div>
+      <div class="kpi-box"><canvas id="chartThroughput"></canvas></div>
+    </div>
+
+
+
+    
   </main>
 
 </div>

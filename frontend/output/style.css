@@ -27,6 +27,14 @@ body {
 /* =========================================================
    TOPBAR
 ========================================================= */
+.panel canvas {
+  width: 320px;
+  height: 320px;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  display: block;
+  margin: 0 auto;
+} 
 
 .topbar {
   display: flex;

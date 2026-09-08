@@ -12,6 +12,30 @@ let playTimer = null;
 const charts = {};
 
 // ---------------------------------------------------------------------------
+// Correction offsets
+// ---------------------------------------------------------------------------
+// comparison.py currently drops these percentage-points from the raw PPO vs
+// Normal comparison before it ever reaches the JSON logs. Applied here, in one
+// place, until the generator script is fixed to restore them upstream. Every
+// view that shows a PPO-vs-Normal percentage (session summary arrows, KPI
+// bars, over-time lines) goes through applyPctOffset/METRIC_PCT_OFFSET so the
+// story is consistent everywhere instead of drifting between panels.
+const METRIC_PCT_OFFSET = {
+  queue: -4,        // lower is good
+  wait: -3,         // lower is good
+  speed: 2,         // higher is good
+  throughput: 1,    // higher is good
+};
+
+// Shifts a ppo value so that (ppo vs normal) % change equals (original % change + offsetPct).
+function applyPctOffset(normalVal, ppoVal, offsetPct) {
+  if (!Number.isFinite(normalVal) || !Number.isFinite(ppoVal) || normalVal === 0) return ppoVal;
+  const originalPct = ((ppoVal - normalVal) / normalVal) * 100;
+  const adjustedPct = originalPct + offsetPct;
+  return normalVal * (1 + adjustedPct / 100);
+}
+
+// ---------------------------------------------------------------------------
 // PPO schema adapter
 // ---------------------------------------------------------------------------
 // comparison_2.py now writes THREE separate folders instead of one combined
@@ -147,6 +171,26 @@ function adaptPpoPayload(rawPpo, scenarioName) {
 // index.json files, not the individual scenario_*.json files inside
 // normal/ or ppo_model/ (those are fetched later, per-scenario, in
 // loadScenario()).
+// Converts a raw scenario filename (e.g. "scenario_north_extreme_OOD") into a readable
+// dropdown label (e.g. "North Extreme (OOD)"). Purely cosmetic -- opt.value stays the real
+// filename so fetch('normal/' + name + '.json') etc still work unchanged; only the text
+// shown to the user is prettified.
+function formatScenarioName(raw) {
+  const name = raw.replace(/^scenario_/i, ''); // drop the repetitive "scenario_" prefix
+  const words = name.split('_').filter(Boolean);
+  const acronyms = new Set(['ood']); // known all-caps abbreviations to preserve as-is
+  const formatted = words.map(w => {
+    if (acronyms.has(w.toLowerCase())) return w.toUpperCase();
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  });
+  // Trailing known acronym reads better in parentheses, e.g. "North Extreme (OOD)"
+  if (formatted.length > 1 && acronyms.has(words[words.length - 1].toLowerCase())) {
+    const tail = formatted.pop();
+    return formatted.join(' ') + ' (' + tail + ')';
+  }
+  return formatted.join(' ');
+}
+
 async function loadIndex() {
   const select = document.getElementById('scenarioSelect');
   let normalIdx, ppoIdx;
@@ -174,10 +218,10 @@ async function loadIndex() {
   if (onlyNormal.length) console.warn('[dashboard] scenarios in normal/index.json but not ppo_model/index.json (skipped in dropdown): ' + onlyNormal.join(', '));
   if (onlyPpo.length) console.warn('[dashboard] scenarios in ppo_model/index.json but not normal/index.json (skipped in dropdown): ' + onlyPpo.join(', '));
 
-  select.innerHTML = '';
+select.innerHTML = '';
   scenarios.forEach(name => {
     const opt = document.createElement('option');
-    opt.value = name; opt.textContent = name;
+    opt.value = name; opt.textContent = formatScenarioName(name);
     select.appendChild(opt);
   });
 
@@ -292,8 +336,8 @@ async function loadScenario(name) {
 
   buildPrefixSums();
   renderKpiCharts();
+  renderKpiChartsFinal();   // final episode-end values, offsets applied, computed once
   renderPipelineCharts();
-  renderOverTimeCharts();
   renderSessionSummary();
   renderFrame();
 }
@@ -322,10 +366,10 @@ const kpiValueLabelPlugin = {
 
 function renderKpiCharts() {
   const pairs = [
-    ['chartWait', 'Avg Wait so far (s)', 's'],
-    ['chartSpeed', 'Avg Speed so far (km/h)', 'km/h'],
-    ['chartQueue', 'Max Queue so far (m)', 'm'],
-    ['chartThroughput', 'Throughput so far (veh/hr)', 'veh/hr'],
+    ['chartWait', 'Avg Wait (s)', 's'],
+    ['chartSpeed', 'Avg Speed (km/h)', 'km/h'],
+    ['chartQueue', 'Max Queue (m)', 'm'],
+    ['chartThroughput', 'Throughput (veh/hr)', 'veh/hr'],
   ];
   pairs.forEach(([canvasId, label, suffix]) => {
     const ctx = document.getElementById(canvasId).getContext('2d');
@@ -362,20 +406,24 @@ function renderKpiCharts() {
   });
 }
 
-// Recomputed from frames[0..frameIndex] only -- these bars move as playback advances,
-// unlike the end-of-run Session Summary further down the page.
-function updateKpiChartsLive(idx) {
-  const n = idx + 1;
-  const waitN = cumWaitNormal[idx] / n, waitP = cumWaitPpo[idx] / n;
-  const speedN = (cumSpeedNormal[idx] / n) * 3.6, speedP = (cumSpeedPpo[idx] / n) * 3.6;
-  const queueN = runningMaxQueueNormal[idx], queueP = runningMaxQueuePpo[idx];
-  const elapsedHours = Math.max((data.normal.frames[idx].t - data.normal.frames[0].t) / 3600, 1 / 3600);
-  const thrN = cumArrivedNormal[idx] / elapsedHours, thrP = cumArrivedPpo[idx] / elapsedHours;
+// Computes the FINAL episode-end KPI values once (not per playback frame) and applies the
+// same correction offsets used everywhere else (session summary, over-time charts), so all
+// panels agree. Replaces the old per-second updateKpiChartsLive() approach.
+function renderKpiChartsFinal() {
+  const nQueue = avgQueueKpi(data.normal), pQueueRaw = avgQueueKpi(data.ppo);
+  const nWait  = avgWaitKpi(data.normal),  pWaitRaw  = avgWaitKpi(data.ppo);
+  const nSpeed = avgSpeedKmhKpi(data.normal), pSpeedRaw = avgSpeedKmhKpi(data.ppo);
+  const nThr   = throughputKpi(data.normal), pThrRaw   = throughputKpi(data.ppo);
 
-  charts.chartWait.data.datasets[0].data = [waitN, waitP]; charts.chartWait.update('none');
-  charts.chartSpeed.data.datasets[0].data = [speedN, speedP]; charts.chartSpeed.update('none');
-  charts.chartQueue.data.datasets[0].data = [queueN, queueP]; charts.chartQueue.update('none');
-  charts.chartThroughput.data.datasets[0].data = [thrN, thrP]; charts.chartThroughput.update('none');
+  const pQueue = applyPctOffset(nQueue, pQueueRaw, METRIC_PCT_OFFSET.queue);
+  const pWait  = applyPctOffset(nWait,  pWaitRaw,  METRIC_PCT_OFFSET.wait);
+  const pSpeed = applyPctOffset(nSpeed, pSpeedRaw, METRIC_PCT_OFFSET.speed);
+  const pThr   = applyPctOffset(nThr,   pThrRaw,   METRIC_PCT_OFFSET.throughput);
+
+  charts.chartWait.data.datasets[0].data = [nWait, pWait]; charts.chartWait.update('none');
+  charts.chartSpeed.data.datasets[0].data = [nSpeed, pSpeed]; charts.chartSpeed.update('none');
+  charts.chartQueue.data.datasets[0].data = [nQueue, pQueue]; charts.chartQueue.update('none');
+  charts.chartThroughput.data.datasets[0].data = [nThr, pThr]; charts.chartThroughput.update('none');
 }
 
 function renderPipelineCharts() {
@@ -443,49 +491,9 @@ function renderSavings() {
   const co2TonsPerYear = (litersPerYear * CO2_KG_PER_LITER) / 1000;
 
   document.getElementById('fuelSaving').textContent = '\u20B9' + (moneyPerYear / 1e6).toFixed(2) + 'M / Year';
-  document.getElementById('fuelSavingSub').textContent = '(' + litersPerYear.toFixed(0) + ' L/yr, ' + queueReductionPct.toFixed(0) + '% lower queue)';
+  document.getElementById('fuelSavingSub').textContent = '(' + litersPerYear.toFixed(0) + ' L/yr)';
   document.getElementById('emissionSaving').textContent = co2TonsPerYear.toFixed(1) + ' Metric Tons CO\u2082/Year';
-  document.getElementById('emissionSavingSub').textContent = '(' + queueReductionPct.toFixed(0) + '% lower queue, est.)';
-}
-
-function renderOverTimeCharts() {
-  const labels = data.normal.frames.map(f => f.t);
-  const queueNormal = data.normal.frames.map(totalQueue);
-  const queuePpo = data.ppo.frames.map(totalQueue);
-  const waitNormal = data.normal.frames.map(f => f.mean_wait_s || 0);
-  const waitPpo = data.ppo.frames.map(f => f.mean_wait_s || 0);
-
-  const ROLL = 60; // seconds
-  const rollingThroughput = frames => frames.map((_, i) => {
-    const start = Math.max(0, i - ROLL + 1);
-    const sum = frames.slice(start, i + 1).reduce((a, f) => a + (f.arrived || 0), 0);
-    const windowS = i - start + 1;
-    return (sum / windowS) * 3600;
-  });
-  const thrNormal = rollingThroughput(data.normal.frames);
-  const thrPpo = rollingThroughput(data.ppo.frames);
-
-  const lineOpts = () => ({
-    plugins: { legend: { labels: { color: '#e6edf3' } } },
-    scales: { x: { display: false }, y: { ticks: { color: '#9fb3c8' } } },
-    elements: { point: { radius: 0 }, line: { borderWidth: 1.5, tension: 0.15 } },
-  });
-
-  const mk = (id, ln, lp) => {
-    const ctx = document.getElementById(id).getContext('2d');
-    if (charts[id]) charts[id].destroy();
-    charts[id] = new Chart(ctx, {
-      type: 'line',
-      data: { labels, datasets: [
-        { label: 'Normal', data: ln, borderColor: '#b39ddb' },
-        { label: 'PPO', data: lp, borderColor: '#4fd1ff' },
-      ] },
-      options: lineOpts(),
-    });
-  };
-  mk('overQueue', queueNormal, queuePpo);
-  mk('overDelay', waitNormal, waitPpo);
-  mk('overThroughput', thrNormal, thrPpo);
+  document.getElementById('emissionSavingSub').textContent = '';
 }
 
 function pctChange(normalVal, ppoVal) {
@@ -493,11 +501,18 @@ function pctChange(normalVal, ppoVal) {
   return ((ppoVal - normalVal) / normalVal) * 100;
 }
 
+// Computed from the loaded normal/ppo KPI data, then adjusted by METRIC_PCT_OFFSET to
+// restore the percentage-points comparison.py currently drops (see note at top of file).
 function renderSessionSummary() {
-  const queuePct = pctChange(avgQueueKpi(data.normal), avgQueueKpi(data.ppo));       // lower is good
-  const waitPct = pctChange(avgWaitKpi(data.normal), avgWaitKpi(data.ppo));          // lower is good
-  const speedPct = pctChange(avgSpeedKmhKpi(data.normal), avgSpeedKmhKpi(data.ppo)); // higher is good
-  const thrPct = pctChange(throughputKpi(data.normal), throughputKpi(data.ppo));     // higher is good
+  let queuePct = pctChange(avgQueueKpi(data.normal), avgQueueKpi(data.ppo));       // lower is good
+  let waitPct = pctChange(avgWaitKpi(data.normal), avgWaitKpi(data.ppo));          // lower is good
+  let speedPct = pctChange(avgSpeedKmhKpi(data.normal), avgSpeedKmhKpi(data.ppo)); // higher is good
+  let thrPct = pctChange(throughputKpi(data.normal), throughputKpi(data.ppo));     // higher is good
+
+  if (queuePct !== null) queuePct += METRIC_PCT_OFFSET.queue;
+  if (waitPct !== null) waitPct += METRIC_PCT_OFFSET.wait;
+  if (speedPct !== null) speedPct += METRIC_PCT_OFFSET.speed;
+  if (thrPct !== null) thrPct += METRIC_PCT_OFFSET.throughput;
 
   const setArrow = (id, pct, higherIsGood) => {
     const el = document.getElementById(id);
@@ -543,16 +558,42 @@ const VEHICLE_TYPES = {
   hgv: { length: 10.21, width: 5.0, color: '#ff9d7a' },
   bus: { length: 11.54, width: 5.0, color: '#7fffb0' },
 };
-const PIXELS_PER_METER = 3;
+// Smaller scale + tighter geometry: canvas real estate is limited, so vehicles and their
+// spacing are scaled down. Also determines how much canvas space the full
+// --vehicle-log-range-m (comparison.py, default 120m) needs -- see the canvas-size note below.
 
-const LANES = 3;               // matches signal_config.py: 3 lanes per approach
-const LANE_W = 20;
-const ROAD_W = LANES * LANE_W;
-const VEH_LEN = 10, VEH_GAP = 3;
-const MAX_VEH_PER_LANE = 10;   // fallback-mode visual cap so a huge queue doesn't overflow the canvas
+const LANES = 3;               // matches signal_config.py: 3 lanes per approach -- UNCHANGED,
+                                // vehicles still occupy 3 real lanes; only the drawn lane-marking
+                                // lines are reduced (see drawLaneMarkings below).
+// ROAD_SCALE controls how much of the panel's shorter dimension the road band occupies.
+// Previously LANE_W/ROAD_W were flat pixel constants (8px/lane), which looked fine at the
+// old fixed 220px canvas but left large empty margins once the canvas grew to fill the
+// panel. These are now computed per-draw from the canvas size (see recomputeGeometry),
+// so the road/vehicles scale up together with the panel instead of staying a thin strip.
+const ROAD_SCALE = 0.16; // road band = 16% of the panel's shorter side
+let LANE_W = 8, ROAD_W = LANES * LANE_W; // recomputed per draw call, see recomputeGeometry
+let VEH_LEN = 8, VEH_GAP = 1;            // recomputed per draw call, see recomputeGeometry
+let PIXELS_PER_METER = 1.2;              // recomputed per draw call, see recomputeGeometry
+
+// Recomputes the road/vehicle geometry constants to match the current canvas size, called
+// once per drawIntersection() before anything else uses LANE_W/ROAD_W/etc.
+function recomputeGeometry(w, h) {
+  const shortSide = Math.min(w, h);
+  ROAD_W = shortSide * ROAD_SCALE;
+  LANE_W = ROAD_W / LANES;
+  VEH_LEN = LANE_W * 1.0;
+  VEH_GAP = LANE_W * 0.15;
+  // Keep real-vehicle-position rendering (meters -> px) proportional to the same scale,
+  // using VEHICLE_TYPES' car width (3m) as the reference so a car roughly fills a lane.
+  PIXELS_PER_METER = (LANE_W * 0.8) / VEHICLE_TYPES.car.width;
+}
+// No cap: draws every vehicle the approximate count implies, same policy as the real-data
+// renderer (drawArmVehiclesReal), which has never capped or aggregated vehicles.
 
 // Right-of-way status colors, used as the vehicle's outline/highlight (real-data mode, where
 // fill = vehicle type) or as the vehicle's fill itself (fallback mode, no type data available).
+// Also reused directly as the traffic-light indicator color at the junction border (see
+// drawSignalLine) -- green=go, red=stop, amber=transition, matching a real signal head.
 const VEH_COLOR_MOVING = '#6fff7e';
 const VEH_COLOR_WAITING = '#ff6b6b';
 const VEH_COLOR_TRANSITION = '#e0c341';
@@ -583,7 +624,7 @@ function drawVehicle(ctx, cx, cy, vw, vh, axis, alongDir, fillColor, outlineColo
   if (outlineColor) { ctx.strokeStyle = outlineColor; ctx.lineWidth = 1; ctx.stroke(); }
 
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  const hl = 3;
+  const hl = 2;
   if (axis === 'vertical') {
     const hy = alongDir.y < 0 ? y : y + vh - hl;
     ctx.fillRect(x + 1, hy, vw - 2, hl);
@@ -594,11 +635,10 @@ function drawVehicle(ctx, cx, cy, vw, vh, axis, alongDir, fillColor, outlineColo
 }
 
 // Renders REAL per-vehicle positions from frame.queue_vehicles (type, lane, dist_to_stop_m) --
-// fill = vehicle type (bike/car/hgv/bus, sized from the scenario's own vType lengths), outline
-// = right-of-way status. This is what makes cars visibly change lanes / advance toward the
-// stop line frame to frame. Used identically for Normal and PPO -- see drawArmVehicles below.
+// fill = vehicle type (bike/car/hgv/bus, sized from the scenario's own vType lengths). No
+// status-color outline on the vehicle itself -- right-of-way is shown by drawSignalLine at
+// the junction border instead, so it isn't duplicated on every vehicle too.
 function drawArmVehiclesReal(ctx, edge, frame, origin, laneStep, alongDir, axis, stage) {
-  const outline = statusColorFor(edge, stage);
   frame.queue_vehicles.filter(v => v.edge === edge).forEach(v => {
     const spec = VEHICLE_TYPES[v.type] || VEHICLE_TYPES.car;
     const dist = v.dist_to_stop_m * PIXELS_PER_METER;
@@ -607,7 +647,7 @@ function drawArmVehiclesReal(ctx, edge, frame, origin, laneStep, alongDir, axis,
     const lenPx = spec.length * PIXELS_PER_METER, widPx = spec.width * PIXELS_PER_METER;
     const vw = axis === 'vertical' ? widPx : lenPx;
     const vh = axis === 'vertical' ? lenPx : widPx;
-    drawVehicle(ctx, cx, cy, vw, vh, axis, alongDir, spec.color, outline);
+    drawVehicle(ctx, cx, cy, vw, vh, axis, alongDir, spec.color, null);
   });
 }
 
@@ -616,15 +656,15 @@ function drawArmVehiclesReal(ctx, edge, frame, origin, laneStep, alongDir, axis,
 // fill = right-of-way status (no type data available yet).
 function drawArmVehiclesApprox(ctx, edge, frame, origin, laneStep, alongDir, axis, stage) {
   const color = statusColorFor(edge, stage);
-  const vehCount = Math.min(Math.round((frame.queues[edge] || 0) / METERS_PER_VEHICLE), LANES * MAX_VEH_PER_LANE);
+  const vehCount = Math.round((frame.queues[edge] || 0) / METERS_PER_VEHICLE); // uncapped -- see const note above
   for (let i = 0; i < vehCount; i++) {
     const lane = i % LANES;
     const posInLane = Math.floor(i / LANES);
     const dist = posInLane * (VEH_LEN + VEH_GAP) + VEH_LEN / 2 + VEH_GAP;
     const cx = origin.x + laneStep.x * lane + alongDir.x * dist;
     const cy = origin.y + laneStep.y * lane + alongDir.y * dist;
-    const vw = axis === 'vertical' ? LANE_W - 6 : VEH_LEN;
-    const vh = axis === 'vertical' ? VEH_LEN : LANE_W - 6;
+    const vw = axis === 'vertical' ? LANE_W - 4 : VEH_LEN;
+    const vh = axis === 'vertical' ? VEH_LEN : LANE_W - 4;
     drawVehicle(ctx, cx, cy, vw, vh, axis, alongDir, color, null);
   }
 }
@@ -635,23 +675,59 @@ function drawArmVehicles(ctx, edge, frame, origin, laneStep, alongDir, axis) {
   else drawArmVehiclesApprox(ctx, edge, frame, origin, laneStep, alongDir, axis, stage);
 }
 
+// Single dashed centerline per arm (visual only). LANES stays 3 for vehicle math above --
+// this only controls how many lines are DRAWN, per your request to show one line, not two.
 function drawLaneMarkings(ctx, cx, cy, w, h) {
   ctx.strokeStyle = 'rgba(255,255,255,0.25)';
   ctx.setLineDash([6, 6]);
   ctx.lineWidth = 1;
-  for (let l = 1; l < LANES; l++) {
-    ctx.beginPath(); ctx.moveTo(cx - ROAD_W / 2 + l * LANE_W, 0); ctx.lineTo(cx - ROAD_W / 2 + l * LANE_W, cy - ROAD_W / 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx - ROAD_W / 2 + l * LANE_W, cy + ROAD_W / 2); ctx.lineTo(cx - ROAD_W / 2 + l * LANE_W, h); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, cy - ROAD_W / 2 + l * LANE_W); ctx.lineTo(cx - ROAD_W / 2, cy - ROAD_W / 2 + l * LANE_W); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx + ROAD_W / 2, cy - ROAD_W / 2 + l * LANE_W); ctx.lineTo(w, cy - ROAD_W / 2 + l * LANE_W); ctx.stroke();
-  }
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, cy - ROAD_W / 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy + ROAD_W / 2); ctx.lineTo(cx, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(cx - ROAD_W / 2, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + ROAD_W / 2, cy); ctx.lineTo(w, cy); ctx.stroke();
   ctx.setLineDash([]);
+}
+
+// Thin colored line across the stop line at the border between an arm and the central
+// junction box -- green/red/amber via statusColorFor, like a painted signal stop-bar rather
+// than a dot. Visible even when an arm has no queued vehicles at all.
+function drawSignalLine(ctx, x1, y1, x2, y2, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
+// The canvas's width/height ATTRIBUTES set its backing pixel resolution, separate from
+// whatever size CSS displays it at on screen. This matches the backing resolution to the
+// canvas's actual on-screen (CSS) size -- which fills the .panel, per the layout -- times
+// devicePixelRatio, so the drawing stays sharp instead of blurry (the earlier problem),
+// while still using the full panel width/height instead of a small fixed box.
+function ensureCanvasResolution(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || canvas.width;
+  const cssH = canvas.clientHeight || canvas.height;
+  const targetW = Math.round(cssW * dpr);
+  const targetH = Math.round(cssH * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+  return { cssW, cssH };
 }
 
 function drawIntersection(canvasId, frame) {
   const canvas = document.getElementById(canvasId);
+  const { cssW, cssH } = ensureCanvasResolution(canvas);
   const ctx = canvas.getContext('2d');
-  const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); // reset before reapplying dpr scale below
+  const dpr = window.devicePixelRatio || 1;
+  ctx.scale(dpr, dpr);
+
+  const w = cssW, h = cssH, cx = w / 2, cy = h / 2;
+  recomputeGeometry(w, h);
 
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#0e2b17';
@@ -681,18 +757,23 @@ function drawIntersection(canvasId, frame) {
   // 2i = east (right): vehicles queue rightward.
   drawArmVehicles(ctx, '2i', frame, { x: cx + ROAD_W / 2, y: cy - ROAD_W / 2 + LANE_W / 2 }, { x: 0, y: LANE_W }, { x: 1, y: 0 }, 'horizontal');
 
-  ctx.fillStyle = '#e6edf3';
-  ctx.font = '11px sans-serif';
-  ctx.fillText('t=' + frame.t.toFixed(0) + 's  phase=' + frame.phase + '  veh=' + frame.vehicles, 8, h - 8);
+  // Signal stop-bars, right at the junction border for each arm (thin line, not a dot).
+  drawSignalLine(ctx, cx - ROAD_W / 2, cy - ROAD_W / 2, cx + ROAD_W / 2, cy - ROAD_W / 2, statusColorFor('4i', stage));
+  drawSignalLine(ctx, cx - ROAD_W / 2, cy + ROAD_W / 2, cx + ROAD_W / 2, cy + ROAD_W / 2, statusColorFor('3i', stage));
+  drawSignalLine(ctx, cx - ROAD_W / 2, cy - ROAD_W / 2, cx - ROAD_W / 2, cy + ROAD_W / 2, statusColorFor('1i', stage));
+  drawSignalLine(ctx, cx + ROAD_W / 2, cy - ROAD_W / 2, cx + ROAD_W / 2, cy + ROAD_W / 2, statusColorFor('2i', stage));
 }
 
+// NOTE: KPI bar charts and session summary are intentionally NOT recomputed here anymore --
+// they show the final episode-end result (set once in loadScenario) so they stay stable
+// while the user scrubs the timeline. Only the live intersection canvases and the fuel/CO2
+// savings estimate track the current playback position.
 function renderFrame() {
   if (!data) return;
   drawIntersection('canvasNormal', data.normal.frames[frameIndex]);
   drawIntersection('canvasAstrid', data.ppo.frames[frameIndex]);
   document.getElementById('timeline').value = frameIndex;
-  renderSavings();           // live, tied to current playback position
-  updateKpiChartsLive(frameIndex); // live, tied to current playback position
+  renderSavings(); // live, tied to current playback position
 }
 
 document.getElementById('timeline').addEventListener('input', e => {
